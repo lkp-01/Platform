@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-与设置和对话包一起挂载本插件；管理分区随后显示一个默认开启的可见性开关。关闭期间，新建会话 chip 不出现，宿主会依据部署默认值（随附 Web bundle 中为 `standard`）组装未指名会话。开启时会恢复已保存的用户默认值；尚未保存时则使用部署默认值；该默认值会同时带到当前空白任务上。chip 中的选择本身只为下一个空白会话暂存一次。再次关闭选择器会以同样方式把当前空白任务带回部署默认值，并丢弃尚未使用的暂存选择；已开始及历史会话的标签、组装与已记录历史均保持不变。
+与设置和对话包一起挂载本插件；管理分区随后显示一个默认开启的可见性开关。关闭期间，新建会话 chip 不出现，宿主会依据部署默认值（随附 Web bundle 中为 `standard`）组装未指名会话。开启时会恢复已保存的用户默认值；尚未保存时则使用部署默认值；该默认值会同时带到当前空白任务上。chip 中的选择会使用指定 preset 创建独立 Session，并保留当前工作区。开始新对话按钮为当前显示的 preset 再建一个 Session。创建失败会显示在选择器旁，并阻止输入，直到重试成功。再次关闭选择器会以同样方式把当前空白任务带回部署默认值，并丢弃尚未使用的暂存选择；已开始及历史会话的标签、组装与已记录历史均保持不变。
 
 ### 管理名单
 
@@ -43,7 +43,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-设置分区通过现有的 `settings.update` 写入宿主的 `agent-presets` 命名空间。可见性开关只设置 `modeSelectionEnabled`；仅当选择器显示时，设为默认动作才会写入 `default`。两种写入之后，都由宿主名单给出当前生效的默认值，再由 chip controller 的 `agentPresets/select` 链路把它带到同一个仍为空白的会话；这些界面只使用这一条会话修改 API。展示选项与宿主的生效可见性来自 `agentPresets/list`——名单本身已标记宿主当前生效的默认值并携带 `modeSelectionEnabled`，因此非 loopback 的只读客户端无需内省 settings schema 也能保持一致。设置分区首次加载时查询 `settings.canOpenAgentPresetDirectory()`，并把结果与名单合并；查询失败只会移除原生打开动作。新建会话 chip 仅在 `modeSelectionEnabled` 为 `true` 时渲染；隐藏它会丢弃待处理的暂存选择及本地菜单或失败横幅状态，而标题标签保持注册并读取每个会话已记录的 preset。暂存值在会话到达时应用（既覆盖工作区连接新建的会话，也覆盖它复用的空白会话），被拒绝时丢弃。系统会通过 composer 列上方的瞬时横幅提示拒绝结果，因为 chip 的标签此时已经恢复原值，而被宿主拒绝挂载的 preset 正是发现过程报告为健康的那一种——它的名单卡片上没有任何原因可供回头查看。只有用户刚做出的选择会触发提示；会话成为当前会话时触发的应用器不会。[`dsh-client-connection`](../connection/README.zh.md) 使用同一浏览器会话认证 `agentPresets/read`、`agentPresets/copy`、`settings/openAgentPresetDirectory`、`agentPresets/deletePreset`、`agentPresets/list` 及其他所有宿主 API 方法。组装仍会指明一个会话所运行的插件，因此读取属于侦察，而复制、删除与设置模块拥有的目录打开操作负责管理名单并驱动宿主桌面。分区在自身操作、`settings/document-updated` 与 `connection/reset` 时重读，因为组装文件在浏览器之外编辑，协议链路不会通知文件变动。
+设置分区通过现有的 `settings.update` 写入宿主的 `agent-presets` 命名空间。可见性开关只设置 `modeSelectionEnabled`；仅当选择器显示时，设为默认动作才会写入 `default`。两种写入之后，都由宿主名单给出当前生效的默认值，再由 chip controller 的 `agentPresets/select` 链路把它带到同一个仍为空白的会话；新建会话菜单则通过 `sessions.create` 传递 `agentPreset`，保留工作区归属，并等待创建成功后导航。展示选项与宿主的生效可见性来自 `agentPresets/list`——名单本身已标记宿主当前生效的默认值并携带 `modeSelectionEnabled`，因此非 loopback 的只读客户端无需内省 settings schema 也能保持一致。设置分区首次加载时查询 `settings.canOpenAgentPresetDirectory()`，并把结果与名单合并；查询失败只会移除原生打开动作。新建会话 chip 仅在 `modeSelectionEnabled` 为 `true` 时渲染；隐藏它会丢弃待处理的暂存选择及本地菜单或失败横幅状态，而标题标签保持注册并读取每个会话已记录的 preset。设置与 Creator 动作保留暂存选择路径；菜单选择创建独立 Session。系统会通过 composer 列上方的瞬时横幅提示拒绝结果，因为 chip 的标签此时已经恢复原值，而被宿主拒绝挂载的 preset 正是发现过程报告为健康的那一种——它的名单卡片上没有任何原因可供回头查看。只有用户刚做出的选择会触发提示；会话成为当前会话时触发的应用器不会。[`dsh-client-connection`](../connection/README.zh.md) 使用同一浏览器会话认证 `agentPresets/read`、`agentPresets/copy`、`settings/openAgentPresetDirectory`、`agentPresets/deletePreset`、`agentPresets/list` 及其他所有宿主 API 方法。组装仍会指明一个会话所运行的插件，因此读取属于侦察，而复制、删除与设置模块拥有的目录打开操作负责管理名单并驱动宿主桌面。分区在自身操作、`settings/document-updated` 与 `connection/reset` 时重读，因为组装文件在浏览器之外编辑，协议链路不会通知文件变动。
 
 </details>
 

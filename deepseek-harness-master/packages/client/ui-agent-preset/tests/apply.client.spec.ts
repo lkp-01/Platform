@@ -76,6 +76,7 @@ async function bench(options: {
   failSettingsUpdate?: boolean
 } = {}) {
   const ctx = new Context()
+  ctx.provide('workspaces', { list: { getSnapshot: () => ({ items: [] }) } } as never)
   // The host's answer, mutable so a spec can move the default the way the
   // settings surface does and watch who re-reads it.
   let ROSTER: typeof ROSTER_ONE | typeof ROSTER_MOVED | typeof ROSTER_AUTHORED | typeof ROSTER_HIDDEN = ROSTER_ONE
@@ -178,6 +179,7 @@ function uiWorkspaceDouble() {
   return {
     starts,
     startSession: (workspaceId?: unknown) => { starts.push(workspaceId ?? null) },
+    openSession: vi.fn(),
   }
 }
 
@@ -192,6 +194,7 @@ function sessionsDouble(state: {
 }) {
   const listeners = new Set<() => void>()
   return {
+    create: vi.fn(async (_options: unknown) => 'created-session'),
     list: {
       getSnapshot: () => state,
       subscribe: (fn: () => void) => {
@@ -303,7 +306,7 @@ describe('ui-agent-preset apply', () => {
     const { ctx, slots, calls } = await bench()
     declareRoot(slots)
     const conversation = declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject], apply }).await()
@@ -336,7 +339,7 @@ describe('ui-agent-preset apply', () => {
     const { ctx, slots } = await bench()
     declareRoot(slots)
     const conversation = declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply })
@@ -358,7 +361,7 @@ describe('ui-agent-preset apply', () => {
     const { ctx, slots, moveDefault, remote } = await bench()
     declareRoot(slots)
     const conversation = declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
@@ -390,7 +393,7 @@ describe('ui-agent-preset apply', () => {
     const { ctx, slots, calls } = await bench()
     declareRoot(slots)
     const conversation = declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     const sessionState = {
       current: 's1',
       byId: {
@@ -457,7 +460,7 @@ describe('ui-agent-preset apply', () => {
     const { ctx, slots } = await bench()
     declareRoot(slots)
     const conversation = declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
@@ -483,11 +486,11 @@ describe('ui-agent-preset apply', () => {
     conversation()
   })
 
-  it('applies the staged choice to the blank session the flow lands on', async () => {
+  it('creates a new session with the picked preset instead of switching a later blank session', async () => {
     const { ctx, slots, calls } = await bench()
     declareRoot(slots)
     declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     const state: {
       current?: string
       byId: Record<string, {
@@ -514,15 +517,15 @@ describe('ui-agent-preset apply', () => {
     }
     sessions.notify()
 
-    // Connecting a workspace produced the session; the stage reaches it there.
-    await vi.waitFor(() => { expect(calls).toContain('select:minimal') })
+    expect(sessions.create).toHaveBeenCalledWith({ agentPreset: 'minimal' })
+    expect(calls).not.toContain('select:minimal')
   })
 
-  it('applies the stage to a session that records no preset of its own', async () => {
+  it('creates a separate session when the current one records no preset', async () => {
     const { ctx, slots, calls } = await bench()
     declareRoot(slots)
     declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     const sessions = sessionsDouble({
       current: 's1',
       byId: { s1: { id: 's1', blank: true } },
@@ -536,16 +539,15 @@ describe('ui-agent-preset apply', () => {
     await chip.load()
     await chip.select('minimal')
 
-    // A session created before the deployment composed presets records none;
-    // reading that as "already runs it" would drop the pick on the floor.
-    expect(calls).toContain('select:minimal')
+    expect(sessions.create).toHaveBeenCalledWith({ agentPreset: 'minimal' })
+    expect(calls).not.toContain('select:minimal')
   })
 
   it('forgets the stage once it has been spent', async () => {
-    const { ctx, slots, calls } = await bench()
+    const { ctx, slots } = await bench()
     declareRoot(slots)
     declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     const state = {
       current: 's1',
       byId: {
@@ -561,21 +563,21 @@ describe('ui-agent-preset apply', () => {
 
     await chip.load()
     await chip.select('minimal')
-    const spent = calls.filter(call => call === 'select:minimal').length
+    const spent = sessions.create.mock.calls.length
     sessions.notify()
     sessions.notify()
 
     // Every later list movement would re-apply a stage that was not cleared,
     // switching sessions the user never picked for.
     await Promise.resolve()
-    expect(calls.filter(call => call === 'select:minimal')).toHaveLength(spent)
+    expect(sessions.create.mock.calls).toHaveLength(spent)
   })
 
   it('loads the header label from the shared roster store', async () => {
     const { ctx, slots } = await bench()
     declareRoot(slots)
     declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
@@ -591,7 +593,7 @@ describe('ui-agent-preset apply', () => {
     const { ctx, slots } = await bench()
     declareRoot(slots)
     const conversation = declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
     const uiWorkspace = uiWorkspaceDouble()
     ctx.provide('uiWorkspace', uiWorkspace as never)
@@ -629,7 +631,7 @@ describe('ui-agent-preset apply', () => {
     const { ctx, slots, calls } = await bench()
     declareRoot(slots)
     const conversation = declareConversation(slots)
-    ctx.provide('conversation', {} as never)
+    ctx.provide('conversation', { blocks: { set: vi.fn() } } as never)
     const state: {
       current?: string
       byId: Record<string, {

@@ -57,6 +57,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   agentLoop: 'core.md',
   agentDefaultModel: 'core.md',
   agentPresets: 'core.md',
+  businessAgentPaths: 'core.md',
   agents: 'core.md',
   approval: 'approval.md',
   attachments: 'attachment.md',

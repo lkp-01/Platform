@@ -2,6 +2,7 @@
 
 /** Locale keys these surfaces render. */
 export type AgentPresetSettingsKey =
+  | 'startSession' | 'startingSession'
   | 'error' | 'userTrust' | 'seatHint' | 'headerHint'
   | 'nav' | 'sectionIntro' | 'builtIn' | 'setDefault' | 'view'
   | 'presetStandardName' | 'presetStandardDescription'
@@ -22,6 +23,8 @@ export type AgentPresetSettingsKey =
 
 /** English copy. */
 export const en: Record<AgentPresetSettingsKey, string> = {
+  startSession: 'Start a new chat',
+  startingSession: 'Preparing agent…',
   error: 'Could not load agent presets.',
   userTrust: 'Custom',
   seatHint: 'Agent preset for the session you are about to start',
@@ -93,6 +96,8 @@ export const en: Record<AgentPresetSettingsKey, string> = {
 
 /** Simplified Chinese copy. */
 export const zh: Record<AgentPresetSettingsKey, string> = {
+  startSession: '开始新对话',
+  startingSession: '正在准备 Agent…',
   error: '无法加载 Agent 预设。',
   userTrust: '自定义',
   seatHint: '即将开始的这个会话所用的 Agent 预设',

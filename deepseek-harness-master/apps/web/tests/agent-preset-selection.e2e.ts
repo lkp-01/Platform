@@ -34,6 +34,7 @@ const MENU_EXPECTED = join(SNAPSHOT_DIR, 'menu.expected.md')
 const HEADER_EXPECTED = join(SNAPSHOT_DIR, 'header.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'agent-preset-selection-web-e2e'
+let liveSessionId: string | undefined
 /** A project skill only a preset that mounts `skill-filesystem` can discover. */
 const SKILL_NAME = 'preset-catalog-demo'
 /** The preset whose rows resolve and then refuse to start. */
@@ -201,7 +202,8 @@ async function livePreset(scaffold: WebScaffold): Promise<string | undefined> {
       }
     }
   }
-  const preset = body.result.value?.items.find(item => item.sessionId !== SEED_ID)
+  const preset = body.result.value?.items.find(item => liveSessionId === undefined
+    ? item.sessionId !== SEED_ID : item.sessionId === liveSessionId)
     ?.projections?.values.agentPreset
   return typeof preset === 'string' ? preset : undefined
 }
@@ -236,6 +238,12 @@ describe('web e2e: agent-preset selection', () => {
     await seedWorkspaceSkill(scaffold.workspaceCwd)
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
+    page.on('response', (response) => {
+      if (!response.url().endsWith('/api/session/create')) return
+      void response.json().then((body: { result: { value?: { sessionId: string } } }) => {
+        if (body.result.value !== undefined) liveSessionId = body.result.value.sessionId
+      })
+    })
     tripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -281,7 +289,7 @@ describe('web e2e: agent-preset selection', () => {
     await page.keyboard.press('Escape')
   })
 
-  it('applies the staged pick to the blank session, and the host honors it', async () => {
+  it('creates a separate session with the chosen preset, and the host honors it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-stage'))
     await page.getByRole('button', { name: 'Standard mode' }).click()
     await page.getByRole('menuitem', { name: /Minimal mode/ }).click()
@@ -305,7 +313,10 @@ describe('web e2e: agent-preset selection', () => {
     await banner.waitFor({ timeout: 15_000 })
     expect(await banner.textContent()).toContain('this row refuses to start')
     await expect.poll(() => livePreset(scaffold), { timeout: 15_000 }).toBe('minimal')
-    await page.getByRole('button', { name: 'Minimal mode' }).waitFor({ timeout: 10_000 })
+    await page.getByRole('button', { name: 'Refusing mode' }).waitFor({ timeout: 10_000 })
+    await page.getByRole('button', { name: 'Refusing mode' }).click()
+    await page.getByRole('menuitem', { name: /^Minimal mode/ }).click()
+    await page.locator('[data-composer-input][contenteditable="true"]').waitFor({ timeout: 15_000 })
   }, 60_000)
 
   it('re-reads the slash catalog through the composition the switch installed', async () => {

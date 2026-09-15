@@ -163,6 +163,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-experimental-code-runtime-python': ['py/**/*.py'],
   // The shipped preset compositions travel inside the roster package.
   '@deepseek-ai/dsh-agent-presets': ['presets'],
+  // Business presets and their fixed query worker/fixtures ship with the optional composition.
+  '@deepseek-ai/dsh-business-agents': ['presets'],
+  '@deepseek-ai/dsh-business-tools': ['lib/customer-service.js', 'lib/data-analysis.js', 'lib/operations.js', 'lib/shared.js', 'fixtures', 'runtime'],
   // The Web Host mounts the default-off settings owner independently of each
   // Agent-scoped delegation-tool instance.
   '@deepseek-ai/dsh-tool-subagent': ['lib/model-selection-settings.js'],

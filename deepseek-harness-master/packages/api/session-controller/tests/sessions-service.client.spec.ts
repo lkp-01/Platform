@@ -888,6 +888,15 @@ describe('catalog-addressed navigation', () => {
 })
 
 describe('create', () => {
+  it('passes an explicit preset through both workspace and directory creation', async () => {
+    const b = bench()
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('business') }))
+    await b.svc.create({ cwd: '/w', agentPreset: 'data' })
+    await b.svc.create({ workspaceId: 'ws' as never, agentPreset: 'operations' })
+    expect(b.api.callsOf('session.create')).toEqual([
+      { cwd: '/w', agentPreset: 'data' }, { workspaceId: 'ws', agentPreset: 'operations' },
+    ])
+  })
   it('passes a preallocated id and preserves it on ordinary failure', async () => {
     const b = bench()
     b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('fresh') }))

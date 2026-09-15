@@ -14,6 +14,7 @@
 
 // Type-only: pulls the Session Controller service merge (ctx.sessions).
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
@@ -106,16 +107,32 @@ export function apply(ctx: ClientContext): void {
 
   // The new-session chip and the header label: one controller, because the
   // staged choice belongs to the flow rather than to any one session.
-  ctx.inject(['slots', 'conversation', 'sessions', 'uiWorkspace'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'conversation', 'sessions', 'uiWorkspace', 'workspaces'], (scope: ClientContext) => {
     const seat = new AgentPresetSeatController(scope, () => {
       const state = scope.sessions.list.getSnapshot()
       return state.current === undefined ? undefined : state.byId[state.current]
     })
     activeSeat = seat
+    const createSelectedSession = async (agentPreset: string): Promise<void> => {
+      const before = scope.sessions.list.getSnapshot()
+      const previous = before.current
+      const cwd = previous === undefined ? undefined : before.byId[previous]?.cwd
+      const workspaceId = previous === undefined ? undefined
+        : scope.workspaces.list.getSnapshot().items.find(item => item.sessionIds.includes(previous))?.workspaceId
+      const target = workspaceId === undefined ? (cwd === undefined ? {} : { cwd }) : { workspaceId }
+      const id = await scope.sessions.create({ agentPreset, ...target })
+      if (scope.sessions.list.getSnapshot().current === previous) scope.uiWorkspace.openSession(id)
+    }
     const seatInjected = (): AgentPresetSeatInjected => ({
       hooks: { agentPresetSeat: seat.store },
       load: () => seat.load(),
-      select: (id: string) => seat.select(id),
+      select: async (id: string) => {
+        if (seat.store.getSnapshot().busy) return undefined
+        seat.stage(id)
+        await seat.start(createSelectedSession)
+        return seat.store.getSnapshot().error ?? undefined
+      },
+      start: () => seat.start(createSelectedSession),
       introduced: () => { seat.introduced() },
     })
 
@@ -125,10 +142,25 @@ export function apply(ctx: ClientContext): void {
     })
 
     scope.effect(() => {
+      const t = scope.locale.bind('settings.agentPreset')
+      let blockedSession: ReturnType<typeof seat.blankSessionId>
+      const updateBlock = (): void => {
+        const state = seat.store.getSnapshot()
+        const sessionId = seat.blankSessionId()
+        if (blockedSession !== undefined && (blockedSession !== sessionId || (!state.busy && state.error === null))) {
+          scope.conversation.blocks.set(blockedSession, undefined)
+          blockedSession = undefined
+        }
+        if (sessionId !== undefined && (state.busy || state.error !== null)) {
+          scope.conversation.blocks.set(sessionId, { reason: state.error ?? t('startingSession') })
+          blockedSession = sessionId
+        }
+      }
+      const stopBlock = seat.store.subscribe(updateBlock)
       // Connecting a workspace either creates a blank session or reuses one,
       // and either way the chip's pick predates it — so the stage is applied
       // when the session arrives, not when it was made.
-      const stop = scope.sessions.list.subscribe(() => { void seat.apply() })
+      const stop = scope.sessions.list.subscribe(() => { updateBlock(); void seat.apply() })
       // The chip opens on the deployment default, so a default changed from
       // the settings surface moves it too — otherwise the screen that starts
       // the next session keeps offering the previous default until a reload,
@@ -169,6 +201,8 @@ export function apply(ctx: ClientContext): void {
         inject: labelInjected,
       }, AgentPresetLabel)
       return () => {
+        stopBlock()
+        if (blockedSession !== undefined) scope.conversation.blocks.set(blockedSession, undefined)
         stop()
         settingsMoved()
         rosterReaders.delete(readRoster)

@@ -6,3 +6,4 @@
   - img
   - text: Standard mode
   - img
+- button "Start a new chat"

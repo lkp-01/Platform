@@ -898,6 +898,14 @@ roots(): Agent[]
 
 Source: [`packages/core/agent/src/index.ts`](../../packages/core/agent/src/index.ts)
 
+<a id="ctxbusinessagentpaths--businessagentpaths"></a>
+
+### `ctx.businessAgentPaths` — `BusinessAgentPaths`
+
+Resolves shipped preset assets independently of the launch directory.
+
+Source: [`packages/bundle/business-agents/src/index.ts`](../../packages/bundle/business-agents/src/index.ts)
+
 <a id="agent-events"></a>
 
 ### `agent/*` events

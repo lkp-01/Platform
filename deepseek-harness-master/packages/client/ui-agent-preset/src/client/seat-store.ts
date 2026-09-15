@@ -1,10 +1,9 @@
 /**
  * Hero-chip controller: which preset the NEXT session gets.
  *
- * The new-session screen has no session, so a pick is staged rather than
- * applied. It reaches a session when one becomes current and is still blank —
- * whether the workspace connect created it or reused an existing blank one,
- * which is why staging cannot simply ride along on `sessions.create`.
+ * Menu picks use start() to create independent configured Sessions.
+ * Settings and Creator actions can stage a choice for a still-blank Session
+ * produced or reused by the workspace flow.
  *
  * The stage is forgotten once applied. The next new session starts from the
  * Host-effective default again.
@@ -123,6 +122,23 @@ export class AgentPresetSeatController {
   }
 
   /**
+   * Create a separate Session with the selected preset before opening its composer.
+   * @param create - create and navigate to the configured Session.
+   */
+  async start(create: (preset: string) => Promise<void>): Promise<void> {
+    const state = this.store.getSnapshot()
+    if (state.busy || !state.current) return
+    this.staged = undefined
+    this.set({ busy: true, error: null })
+    try {
+      await create(state.current)
+      this.set({ busy: false, current: state.current })
+    } catch (error) {
+      this.set({ busy: false, error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  /**
    * Stage a pick WITHOUT the immediate apply, for a flow that starts the
    * receiving session after the pick (the settings section's creator entry).
    * `select()`'s immediate apply would meet the still-current running session
@@ -179,6 +195,7 @@ export class AgentPresetSeatController {
    * @returns once the switch settled, or immediately when there is nothing to do.
    */
   async apply(): Promise<void> {
+    if (this.store.getSnapshot().busy) return
     const staged = this.staged
     const session = this.currentSession()
     if (staged === undefined) {

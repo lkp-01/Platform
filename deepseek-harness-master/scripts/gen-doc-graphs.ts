@@ -99,6 +99,13 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'businessAgentPaths',
+    pkg: 'business-agents',
+    title: 'Business preset assets',
+    mode: 'core',
+    note: 'Resolves the optional business bundle preset root relative to its installed package.',
+  },
+  {
     key: 'attachments',
     pkg: 'attachment',
     title: 'Durable binary attachment storage',

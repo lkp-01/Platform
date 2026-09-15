@@ -594,6 +594,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'businessAgentPaths',
+    summary: 'Resolves shipped preset assets independently of the launch directory.',
+    description: 'Resolves shipped preset assets independently of the launch directory.',
+    methods: [
+      {
+        signature: 'readonly presetRoot: string = fileURLToPath(new URL(\'../presets/\', import.meta.url))',
+        description: 'Absolute discovery root for the business preset directories.',
+        parameters: [],
+      },
+    ],
+  },
+  {
     key: 'clientModules',
     summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows.',
     description: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).',

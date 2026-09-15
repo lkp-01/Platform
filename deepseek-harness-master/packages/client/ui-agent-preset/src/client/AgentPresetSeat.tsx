@@ -9,7 +9,7 @@
  * where it still works.
  *
  * The menu opens on the staged choice, which starts as the deployment default.
- * Picking stages; the choice reaches a session when one becomes current.
+ * Picking creates a separate Session before its composer becomes available.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -36,6 +36,8 @@ export interface AgentPresetSeatInjected {
   select: (id: string) => Promise<string | undefined>
   /** Clear the one-shot introduce cue once the chip has played it. */
   introduced: () => void
+  /** Optional explicit creation action supplied by a full conversation flow. */
+  start?: () => Promise<void>
 }
 
 /* Introduce timeline: the icon eases in first (the CSS animation shares this
@@ -82,7 +84,7 @@ export type AgentPresetSeatProps =
  * @param props - composed slot props.
  * @returns the chip, or null when the deployment composes no presets.
  */
-export function AgentPresetSeat({ load, select, introduced, useAgentPresetSeat, t }: AgentPresetSeatProps) {
+export function AgentPresetSeat({ load, select, introduced, start, useAgentPresetSeat, t }: AgentPresetSeatProps) {
   const state = useAgentPresetSeat(snapshot => snapshot)
   const [open, setOpen] = useState(false)
   // The seq keys the banner, so picking the same broken preset twice replays
@@ -209,6 +211,12 @@ export function AgentPresetSeat({ load, select, introduced, useAgentPresetSeat, 
           </button>
         )}
       />
+      {start !== undefined && (
+        <button type="button" className={css.seat} disabled={state.busy} onClick={() => { void start() }}>
+          {state.busy ? t('startingSession') : t('startSession')}
+        </button>
+      )}
+      {state.error !== null && <span role="alert">{state.error}</span>}
       {toast !== null && (
         <Toast
           key={toast.seq}
