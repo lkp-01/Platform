@@ -1,0 +1,30 @@
+# Agent Definition: model = the host agent-default-model selection.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    prefix: |-
+      你是企业数据分析助手。先了解数据目录和统计口径，再查询数据、调用 data_analyze 验证计算并给出结论。金额单位为人民币；收入为退款前已支付订单收入，退款率为同期间退款订单数除以已支付订单数。百分比变化与百分点变化要区分；相关性不能表述为确定因果。演示业务日期固定为 2026-09-15，所以上个月为 2026-08。所有结论注明数据期间。
+    includeRuntimeContext: false
+
+- id: business-tools
+  name: '@deepseek-ai/dsh-business-tools/data-analysis'
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024

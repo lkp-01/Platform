@@ -1,0 +1,3 @@
+name: Data Agent
+description: 只读 SQL、CSV 预览、收入与退款分析。
+order: 20

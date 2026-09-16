@@ -82,6 +82,31 @@ export interface TypeApiEntry {
 /** Every harness `ctx.<key>` service, sorted by key. */
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
+    key: 'agentBuilder',
+    summary: 'Creates immutable business definitions without accepting composition code.',
+    description: 'Creates immutable business definitions without accepting composition code.',
+    methods: [
+      {
+        signature: '@Remote(\'catalog\') async catalog(): Promise<AgentBuilderCatalog>',
+        description: 'Read templates and saved Agents together with currently configured models.',
+        parameters: [],
+        returns: 'current authoring choices without creating a Session.',
+      },
+      {
+        signature: '@Remote(\'get\') async get(id: string): Promise<AgentDefinition>',
+        description: 'Project one trusted template or immutable managed definition.',
+        parameters: [{ name: 'id', description: 'id selected from the Preset roster.' }],
+        returns: 'editable business fields and identity.',
+      },
+      {
+        signature: '@Remote(\'create\') async create(input: AgentDefinitionInput, requestToken: string): Promise<AgentDefinition>',
+        description: 'Validate and persist a definition; repeated identical submissions return it.',
+        parameters: [{ name: 'input', description: 'business fields from the form.' }, { name: 'requestToken', description: 'stable UUID for retries of this submission.' }],
+        returns: 'saved Agent identity and fields.',
+      },
+    ],
+  },
+  {
     key: 'agentDefaultModel',
     summary: 'Owns the default model selection independently of any Host or transport.',
     description: 'Owns the default model selection independently of any Host or transport. The composition entry remains usable without a settings provider; when one is mounted, its user layer is read live.',
@@ -601,6 +626,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'readonly presetRoot: string = fileURLToPath(new URL(\'../presets/\', import.meta.url))',
         description: 'Absolute discovery root for the business preset directories.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly managedRoot: string = dshHomePath(\'business-agents\')',
+        description: 'Persistent definitions authored through the business form.',
         parameters: [],
       },
     ],
@@ -3175,6 +3205,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'sessionId', description: 'Agent and Session identity.' }, { name: 'message', description: 'user-safe failure chain.' }],
   },
   {
+    name: 'api-session/initial-model',
+    mode: 'waterfall',
+    signature: '\'api-session/initial-model\'(agentPreset: string | undefined, next: () => Promise<ModelSelection | undefined>): Promise<ModelSelection | undefined>',
+    summary: 'Resolve a Preset\'s model for a newly created Session only.',
+    description: 'Resolve a Preset\'s model for a newly created Session only.',
+    parameters: [{ name: 'agentPreset', description: 'resolved Preset identity, when configured.' }, { name: 'next', description: 'remaining initial-model resolvers.' }],
+  },
+  {
     name: 'api-session/removed',
     mode: 'emit',
     signature: '\'api-session/removed\'(sessionId: SessionId): void',
@@ -3591,8 +3629,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface Agent {\n    readonly id: SessionId;\n}',
   },
   {
+    name: 'AgentBuilderCatalog',
+    declaration: 'export interface AgentBuilderCatalog {\n    models: ModelCatalog;\n    tools: AgentToolChoice[];\n    agents: AgentDefinition[];\n}',
+  },
+  {
     name: 'AgentCancelCause',
     declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n} | {\n    readonly kind: \'hook\';\n    readonly reason: string;\n} | {\n    readonly kind: \'disposed\';\n};',
+  },
+  {
+    name: 'AgentDefinition',
+    declaration: 'export interface AgentDefinition extends AgentDefinitionInput {\n    id: AgentDefinitionId;\n    builtin: boolean;\n}',
+  },
+  {
+    name: 'AgentDefinitionId',
+    declaration: 'export type AgentDefinitionId = string & Branded<\'AgentDefinitionId\'>;',
+  },
+  {
+    name: 'AgentDefinitionInput',
+    declaration: 'export interface AgentDefinitionInput {\n    name: string;\n    prompt: string;\n    model: ModelSelection;\n    toolIds: string[];\n}',
   },
   {
     name: 'AgentFactory',
@@ -3649,6 +3703,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentStatus',
     declaration: 'export type AgentStatus = \'idle\' | \'running\';',
+  },
+  {
+    name: 'AgentToolChoice',
+    declaration: 'export interface AgentToolChoice {\n    id: string;\n    group: string;\n    description: string;\n    simulatedWrite: boolean;\n}',
   },
   {
     name: 'ApiKeyRecord',

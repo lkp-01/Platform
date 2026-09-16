@@ -1,0 +1,32 @@
+# Agent Definition: model = the host agent-default-model selection.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    prefix: |-
+      你是企业运营助手。先查项目事实，再为正确负责人创建跟进任务，检查日历并登记通知。所有项目、任务、消息都是模拟数据，不声称已经联系真实人员。发送模拟通知时引用本次会话实际创建的 taskId。演示业务日期为 2026-09-15，时区 Asia/Singapore。
+    includeRuntimeContext: false
+
+- id: business-tools
+  name: '@deepseek-ai/dsh-business-tools/operations'
+  config:
+    businessDate: '2026-09-15'
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024

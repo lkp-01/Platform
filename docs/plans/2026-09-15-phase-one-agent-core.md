@@ -383,6 +383,12 @@ pnpm run doc-sync
 
 ## 10. 交付清单与完成定义
 
+### 执行结果（2026-09-15）
+
+已实现并完成三类真实 DeepSeek 模型场景验收；详细证据见[交付与验收报告](../phase-one-acceptance.md)。相关回归 221 项通过，业务选择器浏览器 1 项及原 Preset 浏览器 8 项通过。Core 基线 158 个文件均未修改。
+
+实施调整：三个工具入口集中在一个业务工具包；查询采用固定 Node 子进程，确保同步 SQLite 查询可被超时终止；重复验证采用官方 Loop 上的脚本模型与真实结果快照，没有新增录制型 `snapshot.yml` 目录或生产 Replay 服务。仓库通用门禁中的 Windows 符号链接和 Git 目录布局失败已在报告中单独列出。
+
 - 一个可用现有 `dsh` 启动的业务 Web 组合，以及三个统一结构的 Agent Definition。
 - 三组业务工具、可复现示例数据与清晰的 mock 标识。
 - Agent Selector、独立 Session、正确 Prompt 和可验证的工具隔离。

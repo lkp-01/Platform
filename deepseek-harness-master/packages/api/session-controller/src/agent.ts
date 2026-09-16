@@ -476,6 +476,12 @@ export class ApiSessionAgentController {
       throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
     }
     const composition = await this.composeAgent(presetId)
+    const initialModel = await this.ctx.waterfall('api-session/initial-model', composition.agentPreset, () => Promise.resolve(undefined))
+    const resolvedModel = initialModel === undefined ? undefined : await this.ctx.llm.resolveCallConfig({
+      provider: initialModel.provider,
+      model: initialModel.model,
+      ...(initialModel.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(initialModel.reasoningEffort) }),
+    })
     return (await this.ctx.agents.create({
       sessionId,
       agentOptions: this.agentOptions(),
@@ -483,7 +489,14 @@ export class ApiSessionAgentController {
         cwd,
         ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
       },
-      setup: composition.setup,
+      setup: async (agentCtx, agent) => {
+        await composition.setup(agentCtx, agent)
+        if (resolvedModel !== undefined) this.selectForNextRequest(agent, {
+          provider: resolvedModel.provider,
+          model: resolvedModel.model,
+          ...(resolvedModel.reasoningEffort === undefined ? {} : { reasoningEffort: resolvedModel.reasoningEffort }),
+        })
+      },
     })).agent
   }
 

@@ -61,6 +61,8 @@ Read these pages when the preset surface is not enough. They move from the brows
 
 -----
 
+When the business authoring service is composed, **Agent library** opens a shared dialog from the new-session selector, Session header or Settings. It lists built-in and saved Agents and offers the Name / Prompt / Model / Tools form, template copies and Start Chat. Saving keeps the draft on failure and uses the same submission token for retries. The generic Preset management section remains separate.
+
 <a id="model-experience"></a>
 ## Model Experience
 

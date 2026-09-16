@@ -1,0 +1,9 @@
+{
+  "owners":[{"id":"u-amy","name":"Amy"},{"id":"u-ben","name":"Ben"}],
+  "projects":[
+    {"id":"P-101","name":"客户上线跟进","ownerId":"u-amy","dueDate":"2026-09-12","status":"active","progress":"本周已完成数据导入；客户培训仍待安排。"},
+    {"id":"P-102","name":"销售周报","ownerId":"u-ben","dueDate":"2026-09-18","status":"active","progress":"本周已完成数据核对，待发布。"},
+    {"id":"P-103","name":"FAQ 整理","ownerId":"u-ben","dueDate":"2026-09-10","status":"completed","progress":"全部完成。"}
+  ],
+  "calendar":[{"ownerId":"u-amy","date":"2026-09-16","start":"09:00","end":"10:00","title":"客户复盘"}]
+}

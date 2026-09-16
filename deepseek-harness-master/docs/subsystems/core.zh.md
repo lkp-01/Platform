@@ -427,6 +427,37 @@ type Branded<B extends string> = string & { readonly [BRAND]: B }
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxagentbuilder--agentbuilder"></a>
+
+### `ctx.agentBuilder` — `AgentBuilder`
+
+Creates immutable business definitions without accepting composition code.
+
+```ts cordis-catalog
+/**
+ * Read templates and saved Agents together with currently configured models.
+ * @returns current authoring choices without creating a Session.
+ */
+@Remote('catalog') async catalog(): Promise<AgentBuilderCatalog>
+
+/**
+ * Project one trusted template or immutable managed definition.
+ * @param id - id selected from the Preset roster.
+ * @returns editable business fields and identity.
+ */
+@Remote('get') async get(id: string): Promise<AgentDefinition>
+
+/**
+ * Validate and persist a definition; repeated identical submissions return it.
+ * @param input - business fields from the form.
+ * @param requestToken - stable UUID for retries of this submission.
+ * @returns saved Agent identity and fields.
+ */
+@Remote('create') async create(input: AgentDefinitionInput, requestToken: string): Promise<AgentDefinition>
+```
+
+Source: [`packages/business/agent-builder/src/index.ts`](../../packages/business/agent-builder/src/index.ts)
+
 <a id="ctxagentdefaultmodel--agentdefaultmodelconfig"></a>
 
 ### `ctx.agentDefaultModel` — `AgentDefaultModelConfig`

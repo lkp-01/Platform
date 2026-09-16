@@ -25,6 +25,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the Workspace UI navigation service merge (ctx.uiWorkspace).
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import { AgentBuilder, AgentBuilderEntry, type AgentBuilderInjected } from './AgentBuilder.tsx'
+import { AgentBuilderController } from './builder-store.ts'
+import { builderEn, builderZh, type BuilderKey } from './builder-locales.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { AgentPresetLabel } from './AgentPresetLabel.tsx'
 import type { AgentPresetLabelInjected } from './AgentPresetLabel.tsx'
@@ -39,6 +43,8 @@ import { AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController } from './setti
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
+    /** Business Agent library and authoring form. */
+    agentBuilder: BuilderKey
     /** Agent-preset surface copy. */
     'settings.agentPreset': AgentPresetSettingsKey
   }
@@ -104,6 +110,7 @@ export function apply(ctx: ClientContext): void {
   // render and simply hides the button while no flow exists.
   let creatorDraft: (() => void) | undefined
   let activeSeat: AgentPresetSeatController | undefined
+  let openBuilder: (() => Promise<void>) | undefined
 
   // The new-session chip and the header label: one controller, because the
   // staged choice belongs to the flow rather than to any one session.
@@ -134,6 +141,63 @@ export function apply(ctx: ClientContext): void {
       },
       start: () => seat.start(createSelectedSession),
       introduced: () => { seat.introduced() },
+      openBuilder: async () => { await openBuilder?.() },
+    })
+
+    scope.inject(['remote.agentBuilder'], (builderScope) => {
+      let mounted = false
+      let alive = true
+      const canMount = (): boolean => alive && !mounted
+      builderScope.effect(() => () => { alive = false }, 'agent-builder.availability')
+      builderScope.on('connection/reset', () => { void enableBuilder() })
+      void enableBuilder()
+
+      async function enableBuilder(): Promise<void> {
+        if (!canMount()) return
+        // A generated Remote namespace can exist without its optional Host service.
+        // Only business-enabled compositions should expose authoring entry points.
+        const available = await builderScope.remote.agentBuilder.catalog().catch(() => undefined)
+        if (available?.ok !== true || !canMount()) return
+        mounted = true
+        const builder = new AgentBuilderController({
+          catalog: async () => {
+            const result = await builderScope.remote.agentBuilder.catalog()
+            if (!result.ok) throw new Error(result.error.message)
+            return result.value
+          },
+          create: async (input, token) => {
+            const result = await builderScope.remote.agentBuilder.create(input, token)
+            if (!result.ok) throw new Error(result.error.message)
+            return result.value
+          },
+          start: createSelectedSession,
+          refreshed: () => { void controller.load(); for (const read of rosterReaders) read() },
+        })
+        openBuilder = () => builder.open()
+        seat.store.set({ ...seat.store.getSnapshot(), builderAvailable: true })
+        builderScope.effect(() => builderScope.locale.register('agentBuilder', { en: builderEn, zh: builderZh }), 'agent-builder.locale')
+        const injectBuilder = (): AgentBuilderInjected => ({
+          hooks: { agentBuilder: builder.store }, open: () => builder.open(), close: () => { builder.close() },
+          refresh: () => builder.refresh(), begin: (template) => { builder.begin(template) },
+          change: (patch) => { builder.change(patch) }, back: () => { builder.back() },
+          save: () => builder.save(), start: id => builder.start(id),
+        })
+        builderScope.slots.inject('shell.overlay', () => builderScope.slots.register({
+          name: 'shell.overlay', id: 'agent-builder', locale: 'agentBuilder', inject: injectBuilder,
+        }, AgentBuilder))
+        builderScope.slots.register({ name: 'conversation.session.header.actions', id: 'agent-builder', order: -9,
+          locale: 'agentBuilder', inject: () => ({ open: () => builder.open() }),
+        }, AgentBuilderEntry)
+        builderScope.slots.inject('settings.section', () => builderScope.slots.register({
+          name: 'settings.section', id: 'agent-builder', order: 19, label: () => builderScope.locale.bind('agentBuilder')('library'),
+          locale: 'agentBuilder', inject: () => ({ open: () => builder.open() }),
+        }, AgentBuilderEntry))
+        builderScope.effect(() => () => {
+          openBuilder = undefined
+          seat.store.set({ ...seat.store.getSnapshot(), builderAvailable: false })
+        }, 'agent-builder.detach')
+        void seat.load()
+      }
     })
 
     const labelInjected = (): AgentPresetLabelInjected => ({

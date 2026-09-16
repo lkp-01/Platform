@@ -61,6 +61,8 @@ kind: "package-reference"
 
 -----
 
+挂载业务创建服务时，可以从新会话选择器、Session 顶部或设置中的 **Agent 工作台** 打开共享对话框。它展示内置和已保存 Agent，提供名称 / Prompt / 模型 / 工具表单、模板复制和开始对话。保存失败保留草稿，重试沿用同一提交标识。通用 Preset 管理分区保持独立。
+
 <a id="model-experience"></a>
 ## 模型体验
 

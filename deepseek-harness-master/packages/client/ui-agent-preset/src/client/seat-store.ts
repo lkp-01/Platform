@@ -22,6 +22,8 @@ import type { AgentPresetOption } from './settings-store.ts'
 export interface AgentPresetSeatState {
   /** Whether the new-session surface exposes preset selection. */
   showPicker: boolean
+  /** Whether the optional business authoring service is available. */
+  builderAvailable?: boolean
   /** Presets the deployment supplies; empty means the chip renders nothing. */
   options: readonly AgentPresetOption[]
   /** The staged choice, empty until the roster loads. */

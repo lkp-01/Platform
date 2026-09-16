@@ -55,6 +55,15 @@
     },
     {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../business/agent-builder"
+    },
+    {
+      "path": "../ui-layout"
+    },
+    {
+      "path": "../../util/crypto"
     }
   ]
 }

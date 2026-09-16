@@ -400,6 +400,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
+    key: 'agentBuilder',
+    pkg: 'agent-builder',
+    title: 'Business Agent authoring',
+    mode: 'core',
+    note: 'Validates prompt, model and tool selections, publishes immutable Preset directories, and initializes the saved model when a conversation starts.',
+  },
+  {
     key: 'agentPresets',
     pkg: 'agent-presets',
     title: 'Per-session agent composition',

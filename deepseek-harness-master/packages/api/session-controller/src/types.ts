@@ -574,6 +574,13 @@ export type SessionControlFrame =
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
+     * Resolve a Preset's model for a newly created Session only.
+     * @mode waterfall
+     * @param agentPreset - resolved Preset identity, when configured.
+     * @param next - remaining initial-model resolvers.
+     */
+    'api-session/initial-model'(agentPreset: string | undefined, next: () => Promise<ModelSelection | undefined>): Promise<ModelSelection | undefined>
+    /**
      * A Session became visible to Session list consumers.
      * @mode emit
      * @param summary - initial list row for the Session.

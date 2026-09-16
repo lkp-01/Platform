@@ -38,6 +38,8 @@ export interface AgentPresetSeatInjected {
   introduced: () => void
   /** Optional explicit creation action supplied by a full conversation flow. */
   start?: () => Promise<void>
+  /** Open the optional business Agent library. */
+  openBuilder?: () => Promise<void>
 }
 
 /* Introduce timeline: the icon eases in first (the CSS animation shares this
@@ -84,7 +86,7 @@ export type AgentPresetSeatProps =
  * @param props - composed slot props.
  * @returns the chip, or null when the deployment composes no presets.
  */
-export function AgentPresetSeat({ load, select, introduced, start, useAgentPresetSeat, t }: AgentPresetSeatProps) {
+export function AgentPresetSeat({ load, select, introduced, start, openBuilder, useAgentPresetSeat, t }: AgentPresetSeatProps) {
   const state = useAgentPresetSeat(snapshot => snapshot)
   const [open, setOpen] = useState(false)
   // The seq keys the banner, so picking the same broken preset twice replays
@@ -216,6 +218,7 @@ export function AgentPresetSeat({ load, select, introduced, start, useAgentPrese
           {state.busy ? t('startingSession') : t('startSession')}
         </button>
       )}
+      {state.builderAvailable === true && openBuilder !== undefined && <button type="button" className={css.seat} onClick={() => { void openBuilder() }}>{t('agentLibrary')}</button>}
       {state.error !== null && <span role="alert">{state.error}</span>}
       {toast !== null && (
         <Toast

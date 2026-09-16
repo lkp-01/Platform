@@ -1,0 +1,27 @@
+# Optional patch over the shipped web profile. Model selection stays host-owned.
+- insert:
+    - id: business-agent-paths
+      name: '@deepseek-ai/dsh-business-agents'
+    - id: agent-builder
+      name: '@deepseek-ai/dsh-agent-builder'
+      inject: [businessAgentPaths]
+      config:
+        root: !!js businessAgentPaths.managedRoot
+    - id: business-records
+      name: '@deepseek-ai/dsh-business-tools'
+
+- id: agent-presets
+  inject: [businessAgentPaths]
+  config:
+    default: customer-service
+    includeShippedRoot: false
+    includeUserRoot: false
+    roots:
+      - path: !!js businessAgentPaths.presetRoot
+        trust: system
+      - path: !!js businessAgentPaths.managedRoot
+        trust: system
+
+- id: tools
+  config:
+    mode: native

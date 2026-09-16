@@ -1,0 +1,11 @@
+{
+  "knowledge": [
+    {"id":"shipping-delay","title":"发货延期处理政策","content":"超过预计发货日期尚未发货的订单应创建升级工单，由客服在一个工作日内跟进。未经查询不得承诺新的送达日期。","keywords":["延期","发货","物流","delay","shipping"]},
+    {"id":"refund-policy","title":"退款政策","content":"未发货订单可申请退款；已发货订单需先核实退货条件。本工具仅查询政策，退款处理需客服工单。","keywords":["退款","退货","refund","return"]},
+    {"id":"product-warranty","title":"产品保修 FAQ","content":"示例产品提供购买之日起十二个月有限保修，意外损坏不在范围内。","keywords":["保修","产品","warranty","product"]}
+  ],
+  "orders": [
+    {"id":"O-1001","product":"A","status":"delivered","expectedShipDate":"2026-09-10"},
+    {"id":"O-1002","product":"B","status":"awaiting_shipment","expectedShipDate":"2026-09-12"}
+  ]
+}

@@ -33,6 +33,22 @@ Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
 Source: [`packages/acp/acp/src/index.ts:75`](../packages/acp/acp/src/index.ts)
 
+<a id="deepseek-aidsh-agent-builder"></a>
+
+## `@deepseek-ai/dsh-agent-builder`
+
+Requires: `agentPresets` · `sessionController` · `llm` · `agentDefaultModel`
+
+```ts config-catalog
+/** Host-owned configuration directory. */
+interface Config {
+  /** Host-owned persistent directory, also included in Preset discovery. */
+  root: string
+}
+```
+
+Source: [`packages/business/agent-builder/src/index.ts:23`](../packages/business/agent-builder/src/index.ts)
+
 <a id="deepseek-aidsh-agent-default-model"></a>
 
 ## `@deepseek-ai/dsh-agent-default-model`

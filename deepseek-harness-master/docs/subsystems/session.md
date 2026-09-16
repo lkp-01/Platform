@@ -1043,6 +1043,26 @@ Types: [SessionId](core.md)
 
 Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
 
+<a id="api-sessioninitial-model--waterfall"></a>
+
+#### `api-session/initial-model` — waterfall
+
+Resolve a Preset's model for a newly created Session only.
+
+```ts cordis-catalog
+/**
+ * Resolve a Preset's model for a newly created Session only.
+ * @mode waterfall
+ * @param agentPreset - resolved Preset identity, when configured.
+ * @param next - remaining initial-model resolvers.
+ */
+'api-session/initial-model'(agentPreset: string | undefined, next: () => Promise<ModelSelection | undefined>): Promise<ModelSelection | undefined>
+```
+
+Types: [ModelSelection](core.md)
+
+Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
+
 <a id="api-sessionremoved--emit"></a>
 
 #### `api-session/removed` — emit

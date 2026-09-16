@@ -57,6 +57,8 @@ Session 对象还承载本地提交回显：`session.beginSubmission` 在调用�
 
 -----
 
+`api-session/initial-model` waterfall 在解析 Preset 身份后为新建 Session 解析可选模型。Controller 校验路由，在发布 Agent 之前的 setup 中记录 `model/selection`，不保存 Host 默认值。已有 Session 的复用与恢复不调用此初始化器。
+
 <a id="model-experience"></a>
 ## 模型体验
 

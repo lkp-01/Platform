@@ -57,6 +57,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 -----
 
+The `api-session/initial-model` waterfall resolves an optional model for a newly created Session after Preset identity resolution. The controller validates the route and records `model/selection` during setup before publishing the Agent, without saving a Host default. Existing Session adoption and resume do not invoke this initializer.
+
 <a id="model-experience"></a>
 ## Model Experience
 

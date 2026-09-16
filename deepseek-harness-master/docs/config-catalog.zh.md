@@ -35,6 +35,22 @@ export interface AcpConfig {
 
 来源：[`packages/acp/acp/src/index.ts:75`](../packages/acp/acp/src/index.ts)
 
+<a id="deepseek-aidsh-agent-builder"></a>
+
+## `@deepseek-ai/dsh-agent-builder`
+
+需要：`agentPresets` · `sessionController` · `llm` · `agentDefaultModel`
+
+```ts config-catalog
+/** Host-owned configuration directory. */
+interface Config {
+  /** Host-owned persistent directory, also included in Preset discovery. */
+  root: string
+}
+```
+
+来源：[`packages/business/agent-builder/src/index.ts:23`](../packages/business/agent-builder/src/index.ts)
+
 <a id="deepseek-aidsh-agent-default-model"></a>
 
 ## `@deepseek-ai/dsh-agent-default-model`
@@ -3449,6 +3465,8 @@ export interface Config {
 - `@deepseek-ai/dsh-api-remotes` — 需要 `typertGateway`（[`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts)）
 - `@deepseek-ai/dsh-api-workspace-controller` — 需要 `typert` · `workspaceRegistry`（[`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts)）
 - `@deepseek-ai/dsh-authorization` — 需要 `credentials`（[`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts)）
+- `@deepseek-ai/dsh-business-agents`（[`packages/bundle/business-agents/src/index.ts`](../packages/bundle/business-agents/src/index.ts)）
+- `@deepseek-ai/dsh-business-tools` — 需要 `sessionProjections`（[`packages/business/business-tools/src/index.ts`](../packages/business/business-tools/src/index.ts)）
 - `@deepseek-ai/dsh-client-file-upload` — 需要 `agents` · `attachments` · `commands` · `connection`（[`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts)）
 - `@deepseek-ai/dsh-client-locale`（[`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts)）
 - `@deepseek-ai/dsh-client-modules` — 需要 `loader`（[`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts)）
