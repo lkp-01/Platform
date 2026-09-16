@@ -29,6 +29,8 @@ kind: "package-reference"
 
 随附 Web 的 `standard`、`ptc` 与 `cordis` preset 包含[显式文件交付](../../client/ui-deliverables/README.zh.md#explicit-deliveries)。`minimal` preset 保留固定的双工具训练配置。
 
+`agent-presets/authorize` 串行事件允许拥有者插件在副作用发生前拒绝选择、Remote 复制或删除。受管平台版本用此检查保留执行产物，并要求通过自己的任务接受入口启动。没有插件否决操作时，普通 Preset 保留已有行为。
+
 ### preset 给会话带来什么
 
 从 preset 组装的会话会运行该 preset `agent.cordis.yml` 所列插件：它的工具、提示词段落与 skill。加入同一 preset 的会话共享一份已安装的组装，且各会话的状态彼此隔离。subagent 会加入其父方的组装，因此它看到的工具与提示词段落和创建它的 agent 相同。

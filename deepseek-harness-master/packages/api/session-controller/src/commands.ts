@@ -131,6 +131,7 @@ export class SessionCommandController {
    * @returns the normalized selection installed for the Session.
    */
   async selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
+    await this.ctx.serial('api-session/authorize', { action: 'select-model', sessionId: request.sessionId })
     const agent = await this.resolveAgent(request.sessionId)
     return this.agents.serializeImageAdmission(agent, async () => {
       try {
@@ -200,6 +201,7 @@ export class SessionCommandController {
    * @returns the new Session identity.
    */
   async fork(request: SessionForkRequest): Promise<SessionForkValue> {
+    await this.ctx.serial('api-session/authorize', { action: 'fork', sessionId: request.sessionId })
     let atSeq: ReturnType<typeof SessionSeq> | undefined
     try {
       atSeq = request.atSeq === undefined ? undefined : SessionSeq(request.atSeq)
@@ -300,6 +302,7 @@ export class SessionCommandController {
    * @returns acknowledgement that the Agent accepted the prompt.
    */
   async prompt(request: SessionPromptRequest): Promise<SessionPromptValue> {
+    await this.ctx.serial('api-session/authorize', { action: 'prompt', sessionId: request.sessionId })
     if (!hasPromptContent(request.content)) {
       throw new RemoteError(
         'gateway/bad-request',

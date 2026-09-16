@@ -88,6 +88,13 @@ export { agentPresetProjectionDefinition } from './session.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './preset.ts'
 
 declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /** Veto mutations of managed compositions before side effects.
+     * @mode serial
+     * @param request - source or destination composition and optional current Agent.
+     */
+    'agent-presets/authorize'(request: { action: 'copy' | 'delete' | 'select'; presetId: string; agent?: Agent }): Promise<void>
+  }
   interface Context {
     agentPresets: AgentPresets
   }
@@ -560,6 +567,8 @@ export class AgentPresets extends TypertRemoteService {
    * or the deployment configures no writable root.
    */
   async copy(from: string, id: string, name?: string): Promise<void> {
+    await this.ctx.serial('agent-presets/authorize', { action: 'copy', presetId: from })
+    await this.ctx.serial('agent-presets/authorize', { action: 'copy', presetId: id })
     const source = await this.resolve(from)
     // The roster check refuses ids any root supplies — shipped ones included,
     // since a user directory named like a shipped preset is shadowed by it.
@@ -597,6 +606,7 @@ export class AgentPresets extends TypertRemoteService {
    * @throws when the preset is unknown or ships with the deployment.
    */
   async remove(id: string): Promise<void> {
+    await this.ctx.serial('agent-presets/authorize', { action: 'delete', presetId: id })
     await deleteComposition(this.resolvedRoots, await this.resolve(id))
     // Sessions on the deleted preset keep their standing mount; only new
     // sessions see the roster without it.
@@ -729,6 +739,7 @@ export class AgentPresets extends TypertRemoteService {
 
   /** One queued switch: re-check, recompose, then record what the agent runs. */
   private async swap(agent: Agent, agentPreset: string): Promise<string> {
+    await this.ctx.serial('agent-presets/authorize', { action: 'select', presetId: agentPreset, agent })
     // Re-read inside the queue: an earlier switch may have run, and a
     // conversation may have started, since this call was queued. A turn is one
     // model-loop execution; standalone plugin events never open one, so a

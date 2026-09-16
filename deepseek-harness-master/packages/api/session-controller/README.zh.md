@@ -59,6 +59,8 @@ Session 对象还承载本地提交回显：`session.beginSubmission` 在调用�
 
 `api-session/initial-model` waterfall 在解析 Preset 身份后为新建 Session 解析可选模型。Controller 校验路由，在发布 Agent 之前的 setup 中记录 `model/selection`，不保存 Host 默认值。已有 Session 的复用与恢复不调用此初始化器。
 
+`api-session/authorize` 串行事件允许插件在修改状态之前拒绝受管 Session 创建、模型选择、提示词接受与 fork。创建时传入已解析 Preset 和确切 Session ID。已有 Session 恢复仍属于读取/恢复操作，拥有者插件单独授权后续修改。没有监听器时，这些操作保留普通行为。
+
 <a id="model-experience"></a>
 ## 模型体验
 

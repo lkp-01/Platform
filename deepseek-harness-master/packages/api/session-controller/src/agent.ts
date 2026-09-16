@@ -476,6 +476,8 @@ export class ApiSessionAgentController {
       throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
     }
     const composition = await this.composeAgent(presetId)
+    await this.ctx.serial('api-session/authorize', { action: 'create', sessionId,
+      ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }) })
     const initialModel = await this.ctx.waterfall('api-session/initial-model', composition.agentPreset, () => Promise.resolve(undefined))
     const resolvedModel = initialModel === undefined ? undefined : await this.ctx.llm.resolveCallConfig({
       provider: initialModel.provider,

@@ -22,13 +22,34 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+<a id="resource-registry"></a>
+### 资源 Registry
+
+侧栏 **Agents** 页面管理稳定资源，提供描述、组织归属、Harness 选择和可编辑草稿。[Registry](src/registry.ts) 在 `platform_agent_registry` Storage Domain 中保存当前配置，使用部署的后端（默认基础配置为 JSON，可路由到 SQLite）。更新要求提供加载时的修订号。归档/恢复保留身份和历史；归档资源不能编辑或新建旧式 Session。
+
+Host 配置支持 `workspaceId` / `workspaceName`（默认 `shared` / `Shared workspace`）与 `ownerTeamId` / `ownerTeamName`（默认 `shared-team` / `Shared team`）。这些是明确的共享 Host 引用，不代表认证后的租户成员关系或文件系统 Workspace。Registry 数据只允许一个写入 Host。创建 token 支持跨重启重试去重，即使后续已编辑资源，改变原请求内容仍会被拒绝。
+
+启动时幂等导入有效旧定义，无效条目显示在目录诊断中。原 Preset 保持不变，旧式创建也会登记资源。如果资源提交后 Preset 发布失败，可用原创建 token 重试恢复。内置定义保持为模板。草稿编辑不会重写已有 Preset。新资源保持草稿，直到开发者显式保存版本。
+
+### 版本、部署与 Run
+
+**保存为新版本**捕获已保存草稿修订号、Prompt 原文、模型路由、所选工具、已支持且解析完成的模型参数，以及格式一的组合设置。版本号在每个 Agent 内递增，版本记录不可编辑或删除。保存不会部署；**部署**为当前 Host 后续任务选择默认版本。**回滚**激活已保存旧版本，不改变草稿或正在执行的任务。依赖或持久化失败时保留原部署。
+
+[Version](src/versions.ts) 与 [Deployment](src/deployments.ts) 使用独立 Storage Domain。每个 Agent 的版本序号与重试凭据在一条串行化记录中提交；部署指针、历史和凭据也共同提交。Registry 串行控制将这些操作与草稿编辑、归档排序。模型或工具下线后历史快照仍可读取。单 Agent 记录随保留历史增长，只支持一个写入 Host。
+
+[Platform Run](src/platform-runs.ts) 在创建独立 Harness Session 之前持久化任务接受记录。每个已接受任务固定版本、配置摘要和部署修订号；`platform/run` 在 Session 日志中记录相同归因。状态来自 Harness 轮次事件。重复提交标识不会再次发送任务。进程丢失且没有已完成轮次时显示已中断，不自动重发。Session 和 Preset 授权钩子拒绝直接启动版本、切换模型、追加提示词、fork 和修改受管组合。普通旧式会话保留原有行为。
+
+版本 Preset 使用独立 `version-*` 目录，不参与旧资源导入。激活和启动前检查完整文件；依赖挂载成功后才能切换部署指针。已有 Session 恢复其记录的 Preset。外部文件编辑、插件代码变化、Host 系统提示词贡献和远程服务变化不属于冻结的业务配置；请求头和面向模型的消息记录实际执行内容。这是配置追溯，不保证确定性输出复现。
+
+### 不可变执行适配器
+
 [业务配置层](../../bundle/business-agents/README.zh.md)挂载创建服务，并把持久化目录加入 Preset 发现范围。打开 **Agent 工作台**，选择**创建 Agent**，填写四项内容并保存。**开始对话**会按该定义创建独立 Session。模型来自 Host 已配置的提供商，工具来自现有业务工具目录。不选择工具时创建纯对话 Agent。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `root` | 必填 | 由 Host 管理、同时配置为 Preset 发现根目录的路径 |
 
-名称与 Prompt 必填，分别限制为 100 和 32,000 个字符。浏览器不能提交插件路径、可执行配置或凭据。提交标识跨进程和重启去重相同重试；同一标识提交不同内容会失败。业务配置层把托管定义标记为系统所有，防止通用 Preset 删除和文件编辑操作使其身份失效。
+名称与 Prompt 必填，分别限制为 100 和 32,000 个字符。浏览器不能提交插件路径、可执行配置或凭据。提交标识在单写入 Host 上跨重启去重相同重试；同一标识提交不同内容会失败。业务配置层把托管定义标记为系统所有，防止通用 Preset 删除和文件编辑操作使其身份失效。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -40,7 +61,7 @@ kind: "package-reference"
 
 </details>
 
-本包不发布运行时不变量伴随模块，因为定义只有一个不可变表示，且 Cordis effect 负责注册清理。
+本包不发布运行时不变量伴随模块，因为 Storage Domain 负责已提交记录，每次接受任务都在调用 Harness 前检查确切版本与执行产物。插件卸载会等待已接受的 Registry 操作完成，并关闭其拥有的 Domain。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -66,7 +87,7 @@ Prompt 长度和所选 Schema 数量决定新增输入 Token。创建定义不�
 本包面向当前单 Host 业务部署。
 
 - Agent 在现有 Host 访问范围内共享，不提供用户所有权、记忆设置或权限编辑。
-- UI 中的定义不可变。需要调整时通过模板创建新定义；外部直接编辑文件不属于支持流程。
+- 支持一个默认 Host 部署。分支、合并、差异比较、多部署环境、租户授权、自动重试和评测评分延期实现。旧 Session 不追溯补造平台版本或 Run 身份。
 - 工具目录使用本地演示数据和模拟写入。新工具与模型提供商需要由部署负责人先行配置。
 - 模型目录校验不证明远程凭据、配额或服务可用；运行错误仍通过现有 Session 流程展示。
 

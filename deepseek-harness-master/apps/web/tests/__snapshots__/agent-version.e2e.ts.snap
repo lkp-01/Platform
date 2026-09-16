@@ -1,0 +1,20 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Agent Version through the shipped Web composition > saves, deploys, executes, rolls back and reads the original Run after a Host restart 1`] = `
+[
+  {
+    "model": "two",
+    "rolePrompt": [
+      "Prompt B",
+    ],
+    "tools": [],
+  },
+  {
+    "model": "one",
+    "rolePrompt": [
+      "Prompt A literal {{value}}",
+    ],
+    "tools": [],
+  },
+]
+`;

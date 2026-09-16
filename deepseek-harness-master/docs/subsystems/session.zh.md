@@ -1027,6 +1027,25 @@ A Session became visible to Session list consumers.
 
 Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
 
+<a id="api-sessionauthorize--serial"></a>
+
+#### `api-session/authorize` — serial
+
+Veto mutations of plugin-managed Sessions before their side effects.
+
+```ts cordis-catalog
+/**
+ * Veto mutations of plugin-managed Sessions before their side effects.
+ * @mode serial
+ * @param request - action, exact Session identity and resolved Preset on creation.
+ */
+'api-session/authorize'(request: { action: 'create' | 'select-model' | 'prompt' | 'fork'; sessionId: SessionId; agentPreset?: string }): Promise<void>
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
+
 <a id="api-sessionerror--emit"></a>
 
 #### `api-session/error` — emit

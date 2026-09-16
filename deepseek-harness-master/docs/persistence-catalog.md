@@ -589,6 +589,19 @@ Source: [`packages/interaction/permission-presets/src/index.ts:54`](../packages/
 
 Source: [`packages/plan/plan-mode/src/index.ts:47`](../packages/plan/plan-mode/src/index.ts)
 
+### `platform/*`
+
+<a id="platformrun--log-only"></a>
+
+#### `platform/run` — log-only
+
+```ts persistence-catalog
+/** Platform task attribution shared by execution history and evaluations. */
+'platform/run': { runId: string; agentId: string; agentVersionId: string; platformWorkspaceId: string; configHash: string; deploymentRevision: number }
+```
+
+Source: [`packages/business/agent-builder/src/types.ts:8`](../packages/business/agent-builder/src/types.ts)
+
 ### `request/*`
 
 <a id="requestcontext--log-only"></a>

@@ -17,6 +17,9 @@ import * as Records from '@deepseek-ai/dsh-business-tools'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import Commands from '@deepseek-ai/dsh-commands'
 import AgentBuilder from '@deepseek-ai/dsh-agent-builder'
+import Storage from '@deepseek-ai/dsh-storage'
+import * as StorageJson from '@deepseek-ai/dsh-storage-json'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import { createSessionTestController } from '../../../api/session-controller/tests/test-remote.ts'
 
 const root = fileURLToPath(new URL('../presets/', import.meta.url))
@@ -55,14 +58,14 @@ const call = (ctx: Context, agent: Agent, name: string, args: unknown) => ctx.to
 class ScriptedModel extends LlmAdapter {
   requests: GenerateOptions[] = []
   errors: unknown[] = []
-  constructor(private steps: ((options: GenerateOptions) => StreamChunk[])[]) { super() }
+  constructor(private steps: ((options: GenerateOptions) => StreamChunk[] | Promise<StreamChunk[]>)[]) { super() }
   override async resolveModel(provider: string, model: string) { return { provider, id: model, name: model } }
   override async listModels(provider: string) { return ['demo', 'other'].map(id => ({ provider, id, name: id })) }
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
     const next = this.steps.shift()
     if (!next) throw new Error('Unexpected model request')
-    try { yield* next(options) } catch (error) { this.errors.push(error); throw error }
+    try { yield* await next(options) } catch (error) { this.errors.push(error); throw error }
   }
 }
 function requestTool(name: string, args: unknown): StreamChunk[] {
@@ -87,6 +90,60 @@ async function run(agent: Agent, prompt = '执行测试业务任务') {
 }
 
 describe('business presets through the production Loader and Agent Loop', () => {
+  it('pins actual model, prompt and tools to Run versions across a concurrent rollback', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-version-loop-'))
+    temporaryRoots.push(directory)
+    const ctx = await harness(directory)
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const model = new ScriptedModel([async () => { started.resolve(undefined); await release.promise; return finish() }, finish])
+    ctx.llm.registerAdapter(['demo'], model)
+    const controller = createSessionTestController(ctx, { cwd: directory, defaultModelSelection: () => ({ provider: 'demo', model: 'demo' }) })
+    await ctx.plugin(Storage)
+    await ctx.plugin(StorageJson, { root: join(directory, 'storage') })
+    await ctx.plugin(StorageDomain, { backend: 'json' })
+    await ctx.plugin(AgentBuilder, { root: directory })
+    const builder = ctx.agentBuilder
+    const input = { name: 'Versioned SRE', prompt: 'Prompt A literal {{value}}', model: { provider: 'demo', model: 'demo' },
+      toolIds: ['order_query'], description: '', tags: [], ownerTeamId: 'shared-team', harnessId: 'deepseek-harness' as const }
+    const resource = await builder.registryCreate('shared', input, randomUUID())
+    const v1 = await builder.versionCreate('shared', resource.id, 1, randomUUID(), 'First')
+    const edited = await builder.registryUpdate('shared', resource.id, 1, { ...input, prompt: 'Prompt B', toolIds: ['calendar_query'], model: { provider: 'demo', model: 'other' } })
+    const v2 = await builder.versionCreate('shared', resource.id, edited.revision, randomUUID(), 'Second')
+    expect(await builder.deploymentGet('shared', resource.id)).toBeNull()
+    await builder.deploymentActivate('shared', resource.id, v2.id, 0, randomUUID(), 'deploy')
+    await expect(controller.create({ agentPreset: v2.id })).rejects.toThrow('Agent Run entry')
+    const token = randomUUID()
+    const a = await builder.runStart('shared', resource.id, 'Run A', token)
+    expect(a.status, a.error ?? '').toBe('running')
+    await started.promise
+    try {
+      const sessionA = ctx.agents.get(a.sessionId)!
+      expect(ctx.tools.schemas(sessionA).map(tool => tool.name)).toEqual(['calendar_query'])
+      await expect(controller.selectModel({ sessionId: a.sessionId, provider: 'demo', model: 'demo' })).rejects.toThrow('immutable')
+      await expect(controller.fork({ sessionId: a.sessionId })).rejects.toThrow('immutable')
+      await expect(ctx.agentPresets.copy(v2.id, 'copied-version')).rejects.toThrow()
+      await expect(ctx.agentPresets.remove(v2.id)).rejects.toThrow()
+      await expect(ctx.agentPresets.select(sessionA, v1.id)).rejects.toThrow()
+      await builder.deploymentActivate('shared', resource.id, v1.id, 1, randomUUID(), 'rollback')
+      expect((await builder.runStart('shared', resource.id, 'Run A', token)).id).toBe(a.id)
+      const b = await builder.runStart('shared', resource.id, 'Run B', randomUUID())
+      const sessionB = ctx.agents.get(b.sessionId)!
+      await sessionB.whenIdle()
+      expect(ctx.tools.schemas(sessionB).map(tool => tool.name)).toEqual(['order_query'])
+      expect(model.requests.map(request => request.model)).toEqual(['other', 'demo'])
+      expect(JSON.stringify(model.requests[0])).toContain('Prompt B')
+      expect(JSON.stringify(model.requests[1])).toContain('Prompt A literal {{value}}')
+      expect((await builder.runGet('shared', resource.id, b.id))).toMatchObject({ agentVersionId: v1.id, status: 'succeeded' })
+      expect((await builder.runGet('shared', resource.id, a.id))).toMatchObject({ agentVersionId: v2.id, status: 'running' })
+      expect(sessionA.session.snapshotEvents().find(event => event.type === 'platform/run')?.data).toMatchObject({ agentVersionId: v2.id, runId: a.id })
+      const archived = await builder.registryArchive('shared', resource.id, edited.revision, true)
+      await expect(builder.runStart('shared', resource.id, 'new', randomUUID())).rejects.toThrow('Restore')
+      expect(archived.lifecycle).toBe('archived')
+    } finally { release.resolve(undefined); await ctx.agents.get(a.sessionId)!.whenIdle() }
+    expect((await builder.runGet('shared', resource.id, a.id)).status).toBe('succeeded')
+    expect(model.errors).toEqual([])
+  })
   it('creates reusable definitions and initializes distinct models through the real Session Controller', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-builder-loop-'))
     temporaryRoots.push(directory)
@@ -94,6 +151,11 @@ describe('business presets through the production Loader and Agent Loop', () => 
     const model = new ScriptedModel([finish, finish, finish])
     ctx.llm.registerAdapter(['demo'], model)
     const controller = createSessionTestController(ctx, { cwd: directory, defaultModelSelection: () => ({ provider: 'demo', model: 'demo' }) })
+    await ctx.plugin(Storage)
+    const storageRoot = await mkdtemp(join(tmpdir(), 'dsh-builder-storage-'))
+    temporaryRoots.push(storageRoot)
+    await ctx.plugin(StorageJson, { root: storageRoot })
+    await ctx.plugin(StorageDomain, { backend: 'json' })
     await ctx.plugin(AgentBuilder, { root: directory })
     const builder = ctx.agentBuilder
     const input = { name: 'Custom support', prompt: 'Literal {{customer}}\n!!js this is text', model: { provider: 'demo', model: 'other' }, toolIds: ['order_query', 'calendar_query'] }
@@ -118,6 +180,12 @@ describe('business presets through the production Loader and Agent Loop', () => 
     expect(model.requests[2]!.model).toBe('demo')
     expect((await call(ctx, a, 'ticket_create', { orderId: 'O-1002', summary: 'not selected', escalated: false, requestKey: 'blocked' })).isError).toBe(true)
     await expect(builder.create({ ...input, model: { provider: 'demo', model: 'missing' } }, randomUUID())).rejects.toThrow('available catalog')
+    const resource = await builder.registryGet('shared', first.id)
+    await builder.registryArchive('shared', first.id, resource.revision, true)
+    await expect(controller.create({ agentPreset: first.id })).rejects.toThrow('Restore this Agent')
+    expect((await builder.get(first.id)).prompt).toBe(input.prompt)
+    await expect(controller.create({ sessionId: one.sessionId, agentPreset: first.id, cwd: directory }))
+      .resolves.toMatchObject({ sessionId: one.sessionId })
   })
   it.each([{ names: [] }, { names: ['order_query'] }, { names: ['knowledge_search', 'data_analyze', 'calendar_query'] }])('registers exactly the selected tools: $names', async ({ names }) => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-selected-agent-'))

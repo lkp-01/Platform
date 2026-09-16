@@ -9,6 +9,7 @@
   },
   "include": [
     "apps/web/tests/agent-builder.e2e.ts",
+    "apps/web/tests/agent-registry.e2e.ts",
     "apps/web/tests/scaffold.ts",
     "apps/web/tests/scaffold-generation.spec.ts",
     "apps/web/tests/default-model.e2e.ts",

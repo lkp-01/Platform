@@ -37,6 +37,18 @@
     },
     {
       "path": "../../core/tools"
+    },
+    {
+      "path": "../../storage/storage-domain"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../session-query/session-query"
     }
   ]
 }

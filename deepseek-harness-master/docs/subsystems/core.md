@@ -444,6 +444,128 @@ Creates immutable business definitions without accepting composition code.
  * @returns saved Agent identity and fields.
  */
 @Remote('create') async create(input: AgentDefinitionInput, requestToken: string): Promise<AgentDefinition>
+
+/** Read templates and choices for the configured shared workspace.
+ * @returns catalog with explicit access scope and import failures.
+ */
+@Remote('registryCatalog') async registryCatalog(): Promise<RegistryCatalog>
+
+/** List summaries without materializing Prompt bodies.
+ * @param query - workspace, filters and pagination.
+ * @returns bounded resource page.
+ */
+@Remote('registryList') async registryList(query: RegistryQuery): Promise<RegistryPage>
+
+/** Read current metadata and draft.
+ * @param workspaceId - organization scope.
+ * @param id - resource identity.
+ * @returns current resource including archived state.
+ */
+@Remote('registryGet') async registryGet(workspaceId: string, id: string): Promise<RegistryAgent>
+
+/** Save a resource without publishing or executing it.
+ * @param workspaceId - organization scope.
+ * @param input - metadata and current configuration.
+ * @param requestToken - stable retry token.
+ * @returns durable resource.
+ */
+@Remote('registryCreate') async registryCreate(workspaceId: string, input: RegistryAgentInput, requestToken: string): Promise<RegistryAgent>
+
+/** Save the draft under its loaded revision, preserving executed Presets.
+ * @param workspaceId - organization scope.
+ * @param id - resource identity.
+ * @param revision - optimistic edit lock.
+ * @param input - replacement fields.
+ * @returns updated resource.
+ */
+@Remote('registryUpdate') async registryUpdate(workspaceId: string, id: string, revision: number, input: RegistryAgentInput): Promise<RegistryAgent>
+
+/** Set lifecycle without removing historical Sessions or Presets.
+ * @param workspaceId - organization scope.
+ * @param id - resource identity.
+ * @param revision - optimistic edit lock.
+ * @param archived - true to archive, false to restore.
+ * @returns committed resource.
+ */
+@Remote('registryArchive') async registryArchive(workspaceId: string, id: string, revision: number, archived: boolean): Promise<RegistryAgent>
+
+/** Save the selected draft revision without deploying it.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param revision - saved draft revision.
+ * @param token - stable request UUID.
+ * @param note - change description.
+ * @returns immutable configuration version.
+ */
+@Remote('versionCreate') async versionCreate(workspaceId: string, id: string, revision: number, token: string, note: string): Promise<AgentVersion>
+
+/** List historical version summaries.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param cursor - zero-based page offset.
+ * @returns bounded version metadata.
+ */
+@Remote('versionList') async versionList(workspaceId: string, id: string, cursor: number): Promise<AgentHistoryPage<AgentVersionSummary>>
+
+/** Read an immutable snapshot, even if its dependencies are unavailable.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param versionId - exact version identity.
+ * @returns complete saved configuration.
+ */
+@Remote('versionGet') async versionGet(workspaceId: string, id: string, versionId: string): Promise<AgentVersion>
+
+/** Read the current default deployment.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @returns activation or null before first deployment.
+ */
+@Remote('deploymentGet') async deploymentGet(workspaceId: string, id: string): Promise<AgentDeployment | null>
+
+/** Read deployment and rollback history.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param cursor - page offset.
+ * @returns bounded activation history.
+ */
+@Remote('deploymentHistory') async deploymentHistory(workspaceId: string, id: string, cursor: number): Promise<AgentHistoryPage<AgentDeployment>>
+
+/** Activate a saved version for future tasks only.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param versionId - target snapshot.
+ * @param revision - expected deployment revision, initially zero.
+ * @param token - stable request UUID.
+ * @param action - deploy or rollback intent.
+ * @returns committed activation.
+ */
+@Remote('deploymentActivate') async deploymentActivate( workspaceId: string, id: string, versionId: string, revision: number, token: string, action: 'deploy' | 'rollback', ): Promise<AgentDeployment>
+
+/** Accept a task against the currently deployed version.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param prompt - task input.
+ * @param token - stable admission UUID.
+ * @returns task attribution and current status.
+ */
+@Remote('runStart') async runStart(workspaceId: string, id: string, prompt: string, token: string): Promise<PlatformRun>
+
+/** List real platform tasks, independently of legacy Sessions.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param cursor - page offset.
+ * @param versionId - optional exact version filter.
+ * @returns bounded Run page.
+ */
+@Remote('runList') async runList(workspaceId: string, id: string, cursor: number, versionId?: string): Promise<AgentHistoryPage<PlatformRun>>
+
+/** Read a Run with the version selected at admission.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param runId - task identity.
+ * @returns attribution and Harness-derived status.
+ */
+@Remote('runGet') async runGet(workspaceId: string, id: string, runId: string): Promise<PlatformRun>
 ```
 
 Source: [`packages/business/agent-builder/src/index.ts`](../../packages/business/agent-builder/src/index.ts)
@@ -1309,4 +1431,24 @@ One session committed a different agent preset to its durable log. Consumers inv
 ```
 
 Source: [`packages/preset/agent-presets/src/types.ts`](../../packages/preset/agent-presets/src/types.ts)
+
+<a id="agent-presets-events"></a>
+
+### `agent-presets/*` events
+
+<a id="agent-presetsauthorize--serial"></a>
+
+#### `agent-presets/authorize` — serial
+
+Veto mutations of managed compositions before side effects.
+
+```ts cordis-catalog
+/** Veto mutations of managed compositions before side effects.
+ * @mode serial
+ * @param request - source or destination composition and optional current Agent.
+ */
+'agent-presets/authorize'(request: { action: 'copy' | 'delete' | 'select'; presetId: string; agent?: Agent }): Promise<void>
+```
+
+Source: [`packages/preset/agent-presets/src/index.ts`](../../packages/preset/agent-presets/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -104,6 +104,96 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'input', description: 'business fields from the form.' }, { name: 'requestToken', description: 'stable UUID for retries of this submission.' }],
         returns: 'saved Agent identity and fields.',
       },
+      {
+        signature: '@Remote(\'registryCatalog\') async registryCatalog(): Promise<RegistryCatalog>',
+        description: 'Read templates and choices for the configured shared workspace.',
+        parameters: [],
+        returns: 'catalog with explicit access scope and import failures.',
+      },
+      {
+        signature: '@Remote(\'registryList\') async registryList(query: RegistryQuery): Promise<RegistryPage>',
+        description: 'List summaries without materializing Prompt bodies.',
+        parameters: [{ name: 'query', description: 'workspace, filters and pagination.' }],
+        returns: 'bounded resource page.',
+      },
+      {
+        signature: '@Remote(\'registryGet\') async registryGet(workspaceId: string, id: string): Promise<RegistryAgent>',
+        description: 'Read current metadata and draft.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'resource identity.' }],
+        returns: 'current resource including archived state.',
+      },
+      {
+        signature: '@Remote(\'registryCreate\') async registryCreate(workspaceId: string, input: RegistryAgentInput, requestToken: string): Promise<RegistryAgent>',
+        description: 'Save a resource without publishing or executing it.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'input', description: 'metadata and current configuration.' }, { name: 'requestToken', description: 'stable retry token.' }],
+        returns: 'durable resource.',
+      },
+      {
+        signature: '@Remote(\'registryUpdate\') async registryUpdate(workspaceId: string, id: string, revision: number, input: RegistryAgentInput): Promise<RegistryAgent>',
+        description: 'Save the draft under its loaded revision, preserving executed Presets.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'resource identity.' }, { name: 'revision', description: 'optimistic edit lock.' }, { name: 'input', description: 'replacement fields.' }],
+        returns: 'updated resource.',
+      },
+      {
+        signature: '@Remote(\'registryArchive\') async registryArchive(workspaceId: string, id: string, revision: number, archived: boolean): Promise<RegistryAgent>',
+        description: 'Set lifecycle without removing historical Sessions or Presets.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'resource identity.' }, { name: 'revision', description: 'optimistic edit lock.' }, { name: 'archived', description: 'true to archive, false to restore.' }],
+        returns: 'committed resource.',
+      },
+      {
+        signature: '@Remote(\'versionCreate\') async versionCreate(workspaceId: string, id: string, revision: number, token: string, note: string): Promise<AgentVersion>',
+        description: 'Save the selected draft revision without deploying it.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'revision', description: 'saved draft revision.' }, { name: 'token', description: 'stable request UUID.' }, { name: 'note', description: 'change description.' }],
+        returns: 'immutable configuration version.',
+      },
+      {
+        signature: '@Remote(\'versionList\') async versionList(workspaceId: string, id: string, cursor: number): Promise<AgentHistoryPage<AgentVersionSummary>>',
+        description: 'List historical version summaries.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'cursor', description: 'zero-based page offset.' }],
+        returns: 'bounded version metadata.',
+      },
+      {
+        signature: '@Remote(\'versionGet\') async versionGet(workspaceId: string, id: string, versionId: string): Promise<AgentVersion>',
+        description: 'Read an immutable snapshot, even if its dependencies are unavailable.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'versionId', description: 'exact version identity.' }],
+        returns: 'complete saved configuration.',
+      },
+      {
+        signature: '@Remote(\'deploymentGet\') async deploymentGet(workspaceId: string, id: string): Promise<AgentDeployment | null>',
+        description: 'Read the current default deployment.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }],
+        returns: 'activation or null before first deployment.',
+      },
+      {
+        signature: '@Remote(\'deploymentHistory\') async deploymentHistory(workspaceId: string, id: string, cursor: number): Promise<AgentHistoryPage<AgentDeployment>>',
+        description: 'Read deployment and rollback history.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'cursor', description: 'page offset.' }],
+        returns: 'bounded activation history.',
+      },
+      {
+        signature: '@Remote(\'deploymentActivate\') async deploymentActivate( workspaceId: string, id: string, versionId: string, revision: number, token: string, action: \'deploy\' | \'rollback\', ): Promise<AgentDeployment>',
+        description: 'Activate a saved version for future tasks only.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'versionId', description: 'target snapshot.' }, { name: 'revision', description: 'expected deployment revision, initially zero.' }, { name: 'token', description: 'stable request UUID.' }, { name: 'action', description: 'deploy or rollback intent.' }],
+        returns: 'committed activation.',
+      },
+      {
+        signature: '@Remote(\'runStart\') async runStart(workspaceId: string, id: string, prompt: string, token: string): Promise<PlatformRun>',
+        description: 'Accept a task against the currently deployed version.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'prompt', description: 'task input.' }, { name: 'token', description: 'stable admission UUID.' }],
+        returns: 'task attribution and current status.',
+      },
+      {
+        signature: '@Remote(\'runList\') async runList(workspaceId: string, id: string, cursor: number, versionId?: string): Promise<AgentHistoryPage<PlatformRun>>',
+        description: 'List real platform tasks, independently of legacy Sessions.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'cursor', description: 'page offset.' }, { name: 'versionId', description: 'optional exact version filter.' }],
+        returns: 'bounded Run page.',
+      },
+      {
+        signature: '@Remote(\'runGet\') async runGet(workspaceId: string, id: string, runId: string): Promise<PlatformRun>',
+        description: 'Read a Run with the version selected at admission.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'runId', description: 'task identity.' }],
+        returns: 'attribution and Harness-derived status.',
+      },
     ],
   },
   {
@@ -3077,6 +3167,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'sessionId', description: 'the session whose composition changed.' }, { name: 'agentPreset', description: 'the preset recorded by the committed selection.' }],
   },
   {
+    name: 'agent-presets/authorize',
+    mode: 'serial',
+    signature: '\'agent-presets/authorize\'(request: { action: \'copy\' | \'delete\' | \'select\'; presetId: string; agent?: Agent }): Promise<void>',
+    summary: 'Veto mutations of managed compositions before side effects.',
+    description: 'Veto mutations of managed compositions before side effects.',
+    parameters: [{ name: 'request', description: 'source or destination composition and optional current Agent.' }],
+  },
+  {
     name: 'agent/assistant-stream',
     mode: 'emit',
     signature: '\'agent/assistant-stream\'(this: Scoped<Agent>, payload: { agent: Agent; frame: AssistantStreamFrame }): void',
@@ -3195,6 +3293,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A Session became visible to Session list consumers.',
     description: 'A Session became visible to Session list consumers.',
     parameters: [{ name: 'summary', description: 'initial list row for the Session.' }],
+  },
+  {
+    name: 'api-session/authorize',
+    mode: 'serial',
+    signature: '\'api-session/authorize\'(request: { action: \'create\' | \'select-model\' | \'prompt\' | \'fork\'; sessionId: SessionId; agentPreset?: string }): Promise<void>',
+    summary: 'Veto mutations of plugin-managed Sessions before their side effects.',
+    description: 'Veto mutations of plugin-managed Sessions before their side effects.',
+    parameters: [{ name: 'request', description: 'action, exact Session identity and resolved Preset on creation.' }],
   },
   {
     name: 'api-session/error',
@@ -3649,12 +3755,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentDefinitionInput {\n    name: string;\n    prompt: string;\n    model: ModelSelection;\n    toolIds: string[];\n}',
   },
   {
+    name: 'AgentDeployment',
+    declaration: 'export interface AgentDeployment {\n    agentId: RegistryAgentId;\n    platformWorkspaceId: string;\n    target: \'default\';\n    versionId: AgentVersionId;\n    previousVersionId: AgentVersionId | null;\n    revision: number;\n    action: \'deploy\' | \'rollback\';\n    updatedBy: string;\n    updatedAt: string;\n}',
+  },
+  {
     name: 'AgentFactory',
     declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
   {
     name: 'AgentHandle',
     declaration: 'export interface AgentHandle {\n    agent: Agent;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'AgentHistoryPage',
+    declaration: 'export interface AgentHistoryPage<T> {\n    items: T[];\n    nextCursor: number | null;\n}',
   },
   {
     name: 'AgentOptions',
@@ -3701,12 +3815,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentSetupCommit {\n    commit(): void;\n}',
   },
   {
+    name: 'AgentSnapshot',
+    declaration: 'export interface AgentSnapshot {\n    harnessId: \'deepseek-harness\';\n    prompt: string;\n    model: ModelSelection;\n    toolIds: string[];\n    executionConfig: {\n        rendererVersion: 1;\n        includeRuntimeContext: false;\n        businessDate: string;\n        compaction: {\n            thresholdChars: number;\n            headChars: number;\n            tailChars: number;\n        };\n        modelParameters: {\n            reasoningEffort: string | null;\n            temperature: number | null;\n            maxTokens: number | null;\n            stop: string[] | null;\n        };\n    };\n}',
+  },
+  {
     name: 'AgentStatus',
     declaration: 'export type AgentStatus = \'idle\' | \'running\';',
   },
   {
     name: 'AgentToolChoice',
     declaration: 'export interface AgentToolChoice {\n    id: string;\n    group: string;\n    description: string;\n    simulatedWrite: boolean;\n}',
+  },
+  {
+    name: 'AgentVersion',
+    declaration: 'export interface AgentVersion {\n    id: AgentVersionId;\n    agentId: RegistryAgentId;\n    platformWorkspaceId: string;\n    versionNumber: number;\n    sourceRevision: number;\n    schemaVersion: 1;\n    snapshot: AgentSnapshot;\n    configHash: string;\n    changeNote: string;\n    createdBy: string;\n    createdAt: string;\n}',
+  },
+  {
+    name: 'AgentVersionId',
+    declaration: 'export type AgentVersionId = string & Branded<\'AgentVersionId\'>;',
+  },
+  {
+    name: 'AgentVersionSummary',
+    declaration: 'export type AgentVersionSummary = Omit<AgentVersion, \'snapshot\'> & {\n    model: ModelSelection;\n    toolCount: number;\n};',
   },
   {
     name: 'ApiKeyRecord',
@@ -4825,6 +4955,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
   {
+    name: 'PlatformRun',
+    declaration: 'export interface PlatformRun {\n    id: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    versionNumber: number;\n    platformWorkspaceId: string;\n    configHash: string;\n    deploymentRevision: number;\n    sessionId: SessionId;\n    createdAt: string;\n    createdBy: string;\n    status: \'accepted\' | \'running\' | \'succeeded\' | \'failed\' | \'cancelled\' | \'interrupted\';\n    error: string | null;\n}',
+  },
+  {
+    name: 'PlatformRunId',
+    declaration: 'export type PlatformRunId = string & Branded<\'PlatformRunId\'>;',
+  },
+  {
     name: 'PostToolDecision',
     declaration: 'export type PostToolDecision = {\n    kind: \'accept\';\n    content?: ContentBlock[];\n    value?: never;\n    additionalContexts?: UserMessage[];\n} | {\n    kind: \'accept\';\n    value: JsonValue;\n    content?: never;\n    additionalContexts?: UserMessage[];\n} | {\n    kind: \'block\';\n    feedback: ContentBlock[];\n    additionalContexts?: UserMessage[];\n};',
   },
@@ -4951,6 +5089,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RedactedSecret',
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
+  },
+  {
+    name: 'RegistryAgent',
+    declaration: 'export interface RegistryAgent extends RegistryAgentInput {\n    id: RegistryAgentId;\n    platformWorkspaceId: string;\n    lifecycle: \'active\' | \'archived\';\n    revision: number;\n    createdBy: string;\n    updatedBy: string;\n    createdAt: string;\n    updatedAt: string;\n    archivedAt: string | null;\n    legacyPresetId: string | null;\n}',
+  },
+  {
+    name: 'RegistryAgentId',
+    declaration: 'export type RegistryAgentId = string & Branded<\'RegistryAgentId\'>;',
+  },
+  {
+    name: 'RegistryAgentInput',
+    declaration: 'export interface RegistryAgentInput extends AgentDefinitionInput {\n    description: string;\n    ownerTeamId: string;\n    harnessId: \'deepseek-harness\';\n    tags: string[];\n}',
+  },
+  {
+    name: 'RegistryAgentSummary',
+    declaration: 'export interface RegistryAgentSummary {\n    id: RegistryAgentId;\n    name: string;\n    description: string;\n    ownerTeamId: string;\n    harnessId: \'deepseek-harness\';\n    lifecycle: \'active\' | \'archived\';\n    model: ModelSelection;\n    toolCount: number;\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'RegistryCatalog',
+    declaration: 'export interface RegistryCatalog extends AgentBuilderCatalog {\n    workspace: RegistryWorkspace;\n    importErrors: string[];\n}',
+  },
+  {
+    name: 'RegistryPage',
+    declaration: 'export interface RegistryPage {\n    items: RegistryAgentSummary[];\n    nextCursor: string | null;\n    total: number;\n}',
+  },
+  {
+    name: 'RegistryQuery',
+    declaration: 'export interface RegistryQuery {\n    workspaceId: string;\n    query?: string;\n    lifecycle?: \'active\' | \'archived\' | \'all\';\n    ownerTeamId?: string;\n    cursor?: string;\n    limit?: number;\n}',
+  },
+  {
+    name: 'RegistryWorkspace',
+    declaration: 'export interface RegistryWorkspace {\n    id: string;\n    name: string;\n    ownerTeamId: string;\n    ownerTeamName: string;\n    accessMode: \'shared-host\';\n}',
   },
   {
     name: 'RemoteError',

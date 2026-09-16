@@ -28,6 +28,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import { AgentBuilder, AgentBuilderEntry, type AgentBuilderInjected } from './AgentBuilder.tsx'
 import { AgentBuilderController } from './builder-store.ts'
+import { mountRegistry } from './registry-client.ts'
 import { builderEn, builderZh, type BuilderKey } from './builder-locales.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { AgentPresetLabel } from './AgentPresetLabel.tsx'
@@ -70,6 +71,7 @@ export const inject = [
  * @param ctx - the browser plugin context.
  */
 export function apply(ctx: ClientContext): void {
+  mountRegistry(ctx)
   const controller = new AgentPresetSettingsController(ctx)
   // One roster, three surfaces. The chip is registered in a later scope, so it
   // subscribes here rather than being reached from this one.

@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+本决策约束不可变执行适配器。[平台 Registry 决策](2026-09-16-platform-agent-registry.zh.md)独立管理可编辑资源草稿。
+
 [创建服务](../../../../packages/business/agent-builder/README.zh.md)只接收业务字段，发布不可变 Preset 目录。UUID 提交标识派生目录身份；完整目录发布使重试和并发请求收敛到同一结果。现有 Preset 注册表发现并挂载结果。托管定义属于系统，通用文件编辑和删除操作不会破坏保存身份。
 
 作用域 Prompt 插件通过不递归的变量替换提供用户原文。业务工具插件只注册配置子集，省略配置时保留原有完整默认集合。执行守卫拒绝未选工具，包括直接调用。

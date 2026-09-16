@@ -574,6 +574,12 @@ export type SessionControlFrame =
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
+     * Veto mutations of plugin-managed Sessions before their side effects.
+     * @mode serial
+     * @param request - action, exact Session identity and resolved Preset on creation.
+     */
+    'api-session/authorize'(request: { action: 'create' | 'select-model' | 'prompt' | 'fork'; sessionId: SessionId; agentPreset?: string }): Promise<void>
+    /**
      * Resolve a Preset's model for a newly created Session only.
      * @mode waterfall
      * @param agentPreset - resolved Preset identity, when configured.

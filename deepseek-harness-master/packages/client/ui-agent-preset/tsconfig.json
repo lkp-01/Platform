@@ -64,6 +64,12 @@
     },
     {
       "path": "../../util/crypto"
+    },
+    {
+      "path": "../ui-sidebar"
+    },
+    {
+      "path": "../../util/brand"
     }
   ]
 }

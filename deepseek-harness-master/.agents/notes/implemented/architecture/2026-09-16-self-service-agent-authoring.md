@@ -10,6 +10,8 @@ Business users need to create reusable Agents without editing executable Cordis 
 
 ## Decision
 
+This decision governs the immutable execution adapter. The [platform Registry decision](2026-09-16-platform-agent-registry.md) owns editable resource drafts independently of these Presets.
+
 The [authoring service](../../../../packages/business/agent-builder/README.md) accepts only business fields and publishes immutable Preset directories. A UUID submission token derives the directory identity; complete-directory publication makes retries and concurrent requests converge. The existing Preset registry discovers and mounts the result. Managed definitions are system-owned so generic file-edit and delete actions cannot break saved identities.
 
 The scoped prompt plugin supplies literal user text through a non-recursive variable substitution. Business tool plugins register only configured subsets and preserve their full defaults when omitted. A dispatch guard refuses unselected tools, including direct calls.

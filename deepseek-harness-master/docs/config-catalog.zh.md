@@ -39,17 +39,25 @@ export interface AcpConfig {
 
 ## `@deepseek-ai/dsh-agent-builder`
 
-需要：`agentPresets` · `sessionController` · `llm` · `agentDefaultModel`
+需要：`agentPresets` · `sessionController` · `llm` · `agentDefaultModel` · `storageDomain` · `agents` · `sessions` · `sessionQuery`
 
 ```ts config-catalog
 /** Host-owned configuration directory. */
 interface Config {
   /** Host-owned persistent directory, also included in Preset discovery. */
   root: string
+  /** Organization workspace ID; independent of filesystem workspaces. */
+  workspaceId?: string
+  /** Human-readable organization workspace name. */
+  workspaceName?: string
+  /** Host-owned team identity in this shared deployment. */
+  ownerTeamId?: string
+  /** Human-readable owner team name. */
+  ownerTeamName?: string
 }
 ```
 
-来源：[`packages/business/agent-builder/src/index.ts:23`](../packages/business/agent-builder/src/index.ts)
+来源：[`packages/business/agent-builder/src/index.ts:25`](../packages/business/agent-builder/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
