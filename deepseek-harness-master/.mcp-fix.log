@@ -1,0 +1,6 @@
+packages/business/agent-builder/src/runtime-mcp.ts:68:1: error @stylistic(max-len): This line has a length of 147. Maximum allowed is 140.
+apps/web/tests/platform-mcp.e2e.ts:58:83: error @stylistic(member-delimiter-style): Unexpected separator (;).
+packages/business/agent-builder/src/index.ts:409:23: error typescript(use-unknown-in-catch-callback-variable): Prefer the safe `: unknown` for a `catch` callback variable.
+packages/mcp/mcp-client/tests/managed.spec.ts:21:50: error typescript(no-unsafe-argument): Unsafe argument of type Buffer<any> assigned to a parameter of type Buffer<ArrayBufferLike>.
+apps/web/tests/platform-mcp.e2e.ts:57:48: error typescript(no-unsafe-argument): Unsafe argument of type Buffer<any> assigned to a parameter of type Buffer<ArrayBufferLike>.
+packages/business/agent-builder/tests/runtime-recovery.spec.ts:127:101: error typescript(no-base-to-string): 'value' may use Object's default stringification format ('[object Object]') when stringified. help: Consider picking a property (e.g. `user.name`), using a formatter (or `JSON.stringify`), or implementing a custom `toString()`/`toLocaleString()` on the type.

@@ -12,6 +12,8 @@
     "apps/web/tests/agent-registry.e2e.ts",
     "apps/web/tests/shared-resources.e2e.ts",
     "apps/web/tests/workspace-governance.e2e.ts",
+    "apps/web/tests/platform-workspace.e2e.ts",
+    "apps/web/tests/platform-mcp.e2e.ts",
     "apps/web/tests/agent-run.e2e.ts",
     "apps/web/tests/agent-observability.e2e.ts",
     "apps/web/tests/scaffold.ts",

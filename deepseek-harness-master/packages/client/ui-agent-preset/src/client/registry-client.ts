@@ -165,6 +165,16 @@ export function mountRegistry(ctx: Context): void {
           if (!result.ok) throw new Error(result.error.message)
           return result.value
         },
+        mcpDiscover: async (...args) => {
+          const result = await scope.remote.agentBuilder.mcpDiscover(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        mcpImport: async (...args) => {
+          const result = await scope.remote.agentBuilder.mcpImport(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
       }
       scope.effect(() => scope.locale.register('agentRegistry', { en: registryEn, zh: registryZh }), 'agent-registry.locale')
       scope.slots.inject('conversation.composer', () => scope.slots.register({

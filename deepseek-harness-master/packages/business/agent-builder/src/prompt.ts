@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import { storedSchema } from './definition.ts'
+import { executionInputSchema, tokenSchema } from './definition.ts'
 import type { StoredDefinition } from './types.ts'
 
 export const name = 'agent-definition'
@@ -22,7 +22,7 @@ export const Config: s<Config> = s.object({
  * @param config - immutable stored definition.
  */
 export function apply(ctx: Context, config: Config): void {
-  const value = storedSchema.parse(config)
+  const value = executionInputSchema.extend({ requestToken: tokenSchema }).parse(config)
   ctx.effect(() => ctx.systemPrompt.variable('platform_agent_prompt', () => value.prompt), 'agent-builder.prompt')
   const deny = ctx.tools.schemas().map(tool => tool.name)
   ctx.effect(() => ctx.tools.restrict({ deny }), 'agent-builder.inherited-tools')

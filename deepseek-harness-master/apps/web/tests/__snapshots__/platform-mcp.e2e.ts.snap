@@ -1,0 +1,42 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`isolates bound schemas and dispatch on the same Host and attributes native calls to immutable resources 1`] = `
+[
+  [
+    {
+      "description": "github_read",
+      "parameters": {
+        "properties": {},
+        "type": "object",
+      },
+    },
+  ],
+  [
+    {
+      "description": "github_read",
+      "parameters": {
+        "properties": {},
+        "type": "object",
+      },
+    },
+  ],
+  [
+    {
+      "description": "redis_get",
+      "parameters": {
+        "properties": {},
+        "type": "object",
+      },
+    },
+  ],
+  [
+    {
+      "description": "redis_get",
+      "parameters": {
+        "properties": {},
+        "type": "object",
+      },
+    },
+  ],
+]
+`;

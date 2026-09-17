@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`creates namespaces without login, isolates resources and executes bound Memory through the real Harness loop 1`] = `
+"Agent Platform
+团队工作区
+Shared workspace · 管理员
+Workspace A · 管理员
+Workspace B · 管理员
+Demo
+创建工作区
+English
+Agents
+共享资源
+工作区运行总览
+创建 Agent
+查看已归档 Agent
+redis-agent
+
+Only B
+
+运行
+运行记录
+运行分析
+编辑
+版本与部署
+归档"
+`;

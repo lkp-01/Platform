@@ -87,6 +87,41 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Creates immutable business definitions without accepting composition code.',
     methods: [
       {
+        signature: 'demoWorkspaces(): (PlatformWorkspace & { role: \'admin\' })[]',
+        description: 'List the local Demo namespaces; governed callers retain member filtering.',
+        parameters: [],
+        returns: 'Demo workspace views.',
+      },
+      {
+        signature: 'async demoCreateWorkspace(name: string, token: string): Promise<PlatformWorkspace>',
+        description: 'Create a local Demo namespace without changing governed permissions.',
+        parameters: [{ name: 'name', description: 'display name.' }, { name: 'token', description: 'retry UUID.' }],
+        returns: 'persisted namespace.',
+      },
+      {
+        signature: 'readResourceData(ref: import(\'./resource-types.ts\').ResourceRef, kind: \'memory-store\' | \'eval-dataset\', key: string): string | null',
+        description: 'Read a local data resource in the request namespace.',
+        parameters: [{ name: 'ref', description: 'immutable resource version.' }, { name: 'kind', description: 'expected resource kind.' }, { name: 'key', description: 'local item key.' }],
+        returns: 'stored text or null.',
+      },
+      {
+        signature: 'async putResourceData(ref: import(\'./resource-types.ts\').ResourceRef, kind: \'memory-store\' | \'eval-dataset\', key: string, value: string): Promise<void>',
+        description: 'Write a local data resource without accepting a storage path.',
+        parameters: [{ name: 'ref', description: 'immutable resource version.' }, { name: 'kind', description: 'expected resource kind.' }, { name: 'key', description: 'local item key.' }, { name: 'value', description: 'bounded text.' }],
+      },
+      {
+        signature: '@Remote(\'mcpDiscover\') async mcpDiscover(ref: ResourceRef): Promise<McpDescriptor[]>',
+        description: 'Discover a published workspace MCP server without changing any binding.',
+        parameters: [{ name: 'ref', description: 'exact server version.' }],
+        returns: 'validated public tool descriptions.',
+      },
+      {
+        signature: '@Remote(\'mcpImport\') async mcpImport(ref: ResourceRef, operation: string, token: string): Promise<SharedResource>',
+        description: 'Import one discovered operation as a draft without publishing it.',
+        parameters: [{ name: 'ref', description: 'exact server version.' }, { name: 'operation', description: 'raw remote operation to discover again.' }, { name: 'token', description: 'retry UUID.' }],
+        returns: 'existing or newly created draft.',
+      },
+      {
         signature: '@Remote(\'catalog\') async catalog(): Promise<AgentBuilderCatalog>',
         description: 'Read templates and saved Agents together with currently configured models.',
         parameters: [],
@@ -177,9 +212,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'committed activation.',
       },
       {
-        signature: '@Remote(\'runStart\') async runStart(workspaceId: string, id: string, prompt: string, token: string): Promise<PlatformRun>',
+        signature: '@Remote(\'runStart\') async runStart(workspaceId: string, id: string, prompt: string, token: string, conversationId?: string): Promise<PlatformRun>',
         description: 'Accept a task against the currently deployed version.',
-        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'prompt', description: 'task input.' }, { name: 'token', description: 'stable admission UUID.' }],
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'prompt', description: 'task input.' }, { name: 'token', description: 'stable admission UUID.' }, { name: 'conversationId', description: 'optional owned business conversation for session-scoped Memory.' }],
         returns: 'task attribution and current status.',
       },
       {
@@ -271,6 +306,48 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Derive consumers from Agent drafts and immutable versions.',
         parameters: [{ name: 'id', description: 'resource identity.' }],
         returns: 'direct uses, including deployed and historical Agent versions.',
+      },
+      {
+        signature: '@Remote(\'memoryListItems\') memoryListItems(storeId: string, scope: \'session\' | \'user\' | \'agent\', subjectId: string | undefined, limit?: number): MemoryItemView[]',
+        description: 'List visible Memory Items in one server-derived scope.',
+        parameters: [{ name: 'storeId', description: 'MemoryStore identity in the current Workspace.' }, { name: 'scope', description: 'requested Memory scope.' }, { name: 'subjectId', description: 'Agent ID or owned business conversation for non-user scopes.' }, { name: 'limit', description: 'bounded item count.' }],
+        returns: 'active, non-expired items with their attributable sources.',
+      },
+      {
+        signature: '@Remote(\'memoryGetItem\') memoryGetItem(storeId: string, scope: \'session\' | \'user\' | \'agent\', subjectId: string | undefined, itemId: string): MemoryItemView',
+        description: 'Read one Item only after resolving the caller\'s Memory namespace.',
+        parameters: [{ name: 'storeId', description: 'MemoryStore identity in the current Workspace.' }, { name: 'scope', description: 'requested Memory scope.' }, { name: 'subjectId', description: 'Agent ID or owned business conversation for non-user scopes.' }, { name: 'itemId', description: 'opaque Item identity.' }],
+        returns: 'the visible Item, or a not-found error for foreign IDs.',
+      },
+      {
+        signature: '@Remote(\'memoryCreateItem\') async memoryCreateItem(storeId: string, scope: \'session\' | \'user\' | \'agent\', subjectId: string | undefined, content: string, reason: string, operationKey: string): Promise<MemoryItemView>',
+        description: 'Create an attributable manual Item within a server-derived Memory scope.',
+        parameters: [{ name: 'storeId', description: 'MemoryStore identity in the current Workspace.' }, { name: 'scope', description: 'requested Memory scope.' }, { name: 'subjectId', description: 'Agent ID or owned business conversation for non-user scopes.' }, { name: 'content', description: 'operator-maintained reference content.' }, { name: 'reason', description: 'audit reason for the manual change.' }, { name: 'operationKey', description: 'stable caller retry key.' }],
+        returns: 'Item, with an embedding when the Host configured an embedding service.',
+      },
+      {
+        signature: '@Remote(\'memoryDeleteItem\') memoryDeleteItem(storeId: string, scope: \'session\' | \'user\' | \'agent\', subjectId: string | undefined, itemId: string, revision: number, reason: string): Promise<MemoryItemView>',
+        description: 'Tombstone a Memory Item so it immediately leaves retrieval and cannot be revived by a retry.',
+        parameters: [{ name: 'storeId', description: 'MemoryStore identity in the current Workspace.' }, { name: 'scope', description: 'requested Memory scope.' }, { name: 'subjectId', description: 'Agent ID or owned business conversation for non-user scopes.' }, { name: 'itemId', description: 'opaque Item identity.' }, { name: 'revision', description: 'optimistic Item revision.' }, { name: 'reason', description: 'operator deletion reason.' }],
+        returns: 'durable tombstone metadata.',
+      },
+      {
+        signature: '@Remote(\'memoryMigrateLegacyItem\') async memoryMigrateLegacyItem(storeId: string, legacyKey: string, scope: \'session\' | \'user\' | \'agent\', subjectId?: string): Promise<MemoryItemView>',
+        description: 'Import one explicitly selected legacy KV value into a selected scoped namespace.',
+        parameters: [{ name: 'storeId', description: 'MemoryStore identity in the current Workspace.' }, { name: 'legacyKey', description: 'legacy local-adapter key chosen by an operator.' }, { name: 'scope', description: 'destination Memory scope.' }, { name: 'subjectId', description: 'Agent ID or owned business conversation for non-user scopes.' }],
+        returns: 'imported Item; existing retries return the same Item.',
+      },
+      {
+        signature: '@Remote(\'memoryGetWriteback\') async memoryGetWriteback(workspaceId: string, agentId: string, runId: string): Promise<MemoryWritebackView[]>',
+        description: 'Read post-Run Memory writeback status without exposing another task\'s work.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'agentId', description: 'owning Agent identity.' }, { name: 'runId', description: 'completed task identity.' }],
+        returns: 'every Store writeback job created for the Run.',
+      },
+      {
+        signature: '@Remote(\'memoryRetryWriteback\') async memoryRetryWriteback(workspaceId: string, agentId: string, runId: string, jobId: string): Promise<MemoryWritebackView>',
+        description: 'Retry a failed Memory writeback without rerunning the completed Agent task.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'agentId', description: 'owning Agent identity.' }, { name: 'runId', description: 'completed task identity.' }, { name: 'jobId', description: 'durable Memory writeback job identity.' }],
+        returns: 'retry-ready job state.',
       },
       {
         signature: 'async seedWorkspaceResources(): Promise<void>',
@@ -3897,7 +3974,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentResources',
-    declaration: 'export interface AgentResources {\n    model: ResourceRef;\n    tools: ResourceRef[];\n    skills: ResourceRef[];\n}',
+    declaration: 'export interface AgentResources {\n    model: ResourceRef;\n    tools: ResourceRef[];\n    skills: ResourceRef[];\n    memoryStores?: ResourceRef[] | undefined;\n    memoryBindings?: MemoryBinding[] | undefined;\n}',
   },
   {
     name: 'AgentSetup',
@@ -3909,7 +3986,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentSnapshot',
-    declaration: 'export interface AgentSnapshot {\n    resources?: ResourceManifest | undefined;\n    harnessId: \'deepseek-harness\';\n    prompt: string;\n    model: ModelSelection;\n    toolIds: string[];\n    executionConfig: {\n        rendererVersion: 1 | 2;\n        includeRuntimeContext: false;\n        businessDate: string;\n        compaction: {\n            thresholdChars: number;\n            headChars: number;\n            tailChars: number;\n        };\n        modelParameters: {\n            reasoningEffort: string | null;\n            temperature: number | null;\n            maxTokens: number | null;\n            stop: string[] | null;\n        };\n    };\n}',
+    declaration: 'export interface AgentSnapshot {\n    resources?: ResourceManifest | undefined;\n    harnessId: \'deepseek-harness\';\n    prompt: string;\n    model: ModelSelection;\n    toolIds: string[];\n    executionConfig: {\n        rendererVersion: 1 | 2 | 3;\n        includeRuntimeContext: false;\n        businessDate: string;\n        compaction: {\n            thresholdChars: number;\n            headChars: number;\n            tailChars: number;\n        };\n        modelParameters: {\n            reasoningEffort: string | null;\n            temperature: number | null;\n            maxTokens: number | null;\n            stop: string[] | null;\n        };\n    };\n}',
   },
   {
     name: 'AgentStatus',
@@ -3921,7 +3998,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentVersion',
-    declaration: 'export interface AgentVersion {\n    id: AgentVersionId;\n    agentId: RegistryAgentId;\n    platformWorkspaceId: string;\n    versionNumber: number;\n    sourceRevision: number;\n    schemaVersion: 1 | 2;\n    snapshot: AgentSnapshot;\n    configHash: string;\n    changeNote: string;\n    createdBy: string;\n    createdAt: string;\n}',
+    declaration: 'export interface AgentVersion {\n    id: AgentVersionId;\n    agentId: RegistryAgentId;\n    platformWorkspaceId: string;\n    versionNumber: number;\n    sourceRevision: number;\n    schemaVersion: 1 | 2 | 3;\n    snapshot: AgentSnapshot;\n    configHash: string;\n    changeNote: string;\n    createdBy: string;\n    createdAt: string;\n}',
   },
   {
     name: 'AgentVersionId',
@@ -4916,8 +4993,40 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
+    name: 'McpDescriptor',
+    declaration: 'export interface McpDescriptor {\n    name: string;\n    description: string;\n    inputSchema: Record<string, JsonValue>;\n    outputSchema?: Record<string, JsonValue> | undefined;\n    taskRequired?: boolean | undefined;\n}',
+  },
+  {
     name: 'Measurement',
     declaration: 'export interface Measurement {\n    average: number | null;\n    p50: number | null;\n    p95: number | null;\n    validCount: number;\n    unknownCount: number;\n}',
+  },
+  {
+    name: 'MemoryBinding',
+    declaration: 'export interface MemoryBinding extends ResourceRef, MemoryBindingPolicy {\n}',
+  },
+  {
+    name: 'MemoryBindingPolicy',
+    declaration: 'export interface MemoryBindingPolicy {\n    readScopes: MemoryScope[];\n    writeScopes: MemoryScope[];\n    retrieval: {\n        enabled: boolean;\n        topK: number;\n        minScore: number;\n    };\n    extraction: {\n        sessionSummary: boolean;\n        semanticFact: boolean;\n    };\n}',
+  },
+  {
+    name: 'MemoryContext',
+    declaration: 'export interface MemoryContext {\n    workspaceId: string;\n    agentId: string;\n    userId: string | null;\n    conversationId: string;\n}',
+  },
+  {
+    name: 'MemoryItemView',
+    declaration: 'export interface MemoryItemView {\n    id: string;\n    namespace: {\n        workspaceId: string;\n        memoryStoreId: string;\n        scope: \'session\' | \'user\' | \'agent\';\n        subjectId: string;\n    };\n    kind: \'session_summary\' | \'semantic_fact\';\n    content: string;\n    source: {\n        kind: \'run\' | \'manual\' | \'legacy_import\';\n    };\n    createdAt: string;\n    updatedAt: string;\n    expiresAt: string | null;\n    status: \'active\' | \'deleted\';\n    revision: number;\n    deletedAt: string | null;\n    deletionReason: string | null;\n}',
+  },
+  {
+    name: 'MemoryManifestBinding',
+    declaration: 'export interface MemoryManifestBinding extends ResourceBinding, MemoryBindingPolicy {\n}',
+  },
+  {
+    name: 'MemoryScope',
+    declaration: 'export type MemoryScope = \'session\' | \'user\' | \'agent\';',
+  },
+  {
+    name: 'MemoryWritebackView',
+    declaration: 'export interface MemoryWritebackView {\n    id: string;\n    storeId: string;\n    status: \'pending\' | \'extracting\' | \'candidates_saved\' | \'embedding\' | \'committing\' | \'succeeded\' | \'failed\' | \'skipped\';\n    attempt: number;\n    createdAt: string;\n    updatedAt: string;\n    completedAt: string | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n}',
   },
   {
     name: 'Message',
@@ -5077,11 +5186,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PlatformRun',
-    declaration: 'export interface PlatformRun {\n    ownerTeamIdAtStart?: string | undefined;\n    id: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    versionNumber: number;\n    platformWorkspaceId: string;\n    configHash: string;\n    deploymentRevision: number;\n    sessionId: SessionId;\n    createdAt: string;\n    createdBy: string;\n    status: RunStatus;\n    startedAt: string | null;\n    finishedAt: string | null;\n    finishTimeSource: \'execution\' | \'detected\' | null;\n    cancelRequestedAt: string | null;\n    input: {\n        prompt: string;\n    } | null;\n    result: {\n        textPreview: string | null;\n        sessionId: SessionId;\n        finalMessageSeq: number | null;\n    } | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    events: RunLifecycleEvent[];\n    runtime?: {\n        attempt: number;\n        heartbeatAt: string | null;\n        checkpointSeq: number;\n        checkpointAt: string | null;\n        nextAttemptAt: string | null;\n        deadlineAt: string;\n        resolution: {\n            token: string;\n            callId: string;\n            decision: \'completed\' | \'not-executed\';\n            evidence: string;\n            at: string;\n        } | null;\n    } | undefined;\n}',
+    declaration: 'export interface PlatformRun {\n    ownerTeamIdAtStart?: string | undefined;\n    id: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    versionNumber: number;\n    platformWorkspaceId: string;\n    configHash: string;\n    deploymentRevision: number;\n    sessionId: SessionId;\n    createdAt: string;\n    createdBy: string;\n    memoryContext?: MemoryContext | undefined;\n    status: RunStatus;\n    startedAt: string | null;\n    finishedAt: string | null;\n    finishTimeSource: \'execution\' | \'detected\' | null;\n    cancelRequestedAt: string | null;\n    input: {\n        prompt: string;\n    } | null;\n    result: {\n        textPreview: string | null;\n        sessionId: SessionId;\n        finalMessageSeq: number | null;\n    } | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    events: RunLifecycleEvent[];\n    runtime?: {\n        attempt: number;\n        heartbeatAt: string | null;\n        checkpointSeq: number;\n        checkpointAt: string | null;\n        nextAttemptAt: string | null;\n        deadlineAt: string;\n        resolution: {\n            token: string;\n            callId: string;\n            decision: \'completed\' | \'not-executed\';\n            evidence: string;\n            at: string;\n        } | null;\n    } | undefined;\n}',
   },
   {
     name: 'PlatformRunId',
     declaration: 'export type PlatformRunId = string & Branded<\'PlatformRunId\'>;',
+  },
+  {
+    name: 'PlatformWorkspace',
+    declaration: 'export interface PlatformWorkspace {\n    id: PlatformWorkspaceId;\n    name: string;\n    createdAt: string;\n    updatedAt: string;\n    status: \'active\' | \'archived\';\n    revision: number;\n}',
+  },
+  {
+    name: 'PlatformWorkspaceId',
+    declaration: 'export type PlatformWorkspaceId = string & Branded<\'PlatformWorkspaceId\'>;',
   },
   {
     name: 'PostToolDecision',
@@ -5317,7 +5434,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResourceManifest',
-    declaration: 'export interface ResourceManifest {\n    model: ResourceBinding;\n    tools: ResourceBinding[];\n    skills: ResourceBinding[];\n}',
+    declaration: 'export interface ResourceManifest {\n    model: ResourceBinding;\n    tools: ResourceBinding[];\n    skills: ResourceBinding[];\n    memoryStores?: ResourceBinding[] | undefined;\n    memoryBindings?: MemoryManifestBinding[] | undefined;\n}',
   },
   {
     name: 'ResourceMetrics',
@@ -5329,7 +5446,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResourceSpec',
-    declaration: 'export type ResourceSpec = {\n    kind: \'model\';\n    provider: string;\n    model: string;\n} | {\n    kind: \'tool\';\n    operation: string;\n} | {\n    kind: \'skill\';\n    content: string;\n};',
+    declaration: 'export type ResourceSpec = {\n    kind: \'model\';\n    provider: string;\n    model: string;\n} | {\n    kind: \'tool\';\n    operation: string;\n    server?: ResourceRef | undefined;\n    parameters?: Record<string, JsonValue> | undefined;\n    descriptor?: McpDescriptor | undefined;\n} | {\n    kind: \'skill\';\n    content: string;\n} | {\n    kind: \'mcp-server\';\n    url?: string | undefined;\n    transport?: \'streamable-http\' | \'stdio\' | undefined;\n    launchProfile?: string | undefined;\n    credential?: ResourceRef | undefined;\n} | {\n    kind: \'credential\';\n    alias: string;\n} | {\n    kind: \'memory-store\';\n    adapter: \'local\';\n} | {\n    kind: \'eval-dataset\';\n    adapter: \'local\';\n};',
   },
   {
     name: 'ResourceUsage',
@@ -6557,11 +6674,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TraceEvent',
-    declaration: 'export interface TraceEvent {\n    eventId: string;\n    type: TraceEventType;\n    occurredAt: string;\n    sourceSeq: number | null;\n    sourceRunEventId: string | null;\n    operationId: string | null;\n    attemptId?: string | undefined;\n    attemptNumber?: number | undefined;\n    actorId?: string | undefined;\n    interventionId?: string | undefined;\n    dispatched?: boolean | undefined;\n    turn: number | null;\n    step: number | null;\n    provider: string | null;\n    model: string | null;\n    tool: string | null;\n    durationMs: number | null;\n    preview: TracePreview | null;\n    usage: TraceUsage | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    incomplete: boolean;\n}',
+    declaration: 'export interface TraceEvent {\n    eventId: string;\n    type: TraceEventType;\n    occurredAt: string;\n    sourceSeq: number | null;\n    sourceRunEventId: string | null;\n    operationId: string | null;\n    attemptId?: string | undefined;\n    attemptNumber?: number | undefined;\n    actorId?: string | undefined;\n    interventionId?: string | undefined;\n    dispatched?: boolean | undefined;\n    turn: number | null;\n    step: number | null;\n    provider: string | null;\n    model: string | null;\n    tool: string | null;\n    toolResourceId?: string | undefined;\n    toolVersionId?: string | undefined;\n    mcpServerId?: string | undefined;\n    mcpServerVersionId?: string | undefined;\n    memoryStoreId?: string | undefined;\n    memoryScope?: \'session\' | \'user\' | \'agent\' | undefined;\n    resultCount?: number | undefined;\n    memoryStatus?: \'succeeded\' | \'failed\' | \'degraded\' | undefined;\n    durationMs: number | null;\n    preview: TracePreview | null;\n    usage: TraceUsage | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    incomplete: boolean;\n}',
   },
   {
     name: 'TraceEventType',
-    declaration: 'export type TraceEventType = RunLifecycleEvent[\'type\'] | \'model.call.started\' | \'model.call.completed\' | \'model.call.failed\' | \'model.call.cancelled\' | \'model.retry.scheduled\' | \'tool.call.started\' | \'tool.call.completed\' | \'tool.call.failed\' | \'tool.retry.started\' | \'tool.retry.completed\' | \'tool.retry.failed\' | \'final.answer\' | \'human.intervention.requested\' | \'human.intervention.resolved\';',
+    declaration: 'export type TraceEventType = RunLifecycleEvent[\'type\'] | \'model.call.started\' | \'model.call.completed\' | \'model.call.failed\' | \'model.call.cancelled\' | \'model.retry.scheduled\' | \'tool.call.started\' | \'tool.call.completed\' | \'tool.call.failed\' | \'tool.retry.started\' | \'tool.retry.completed\' | \'tool.retry.failed\' | \'final.answer\' | \'human.intervention.requested\' | \'human.intervention.resolved\' | \'memory.retrieve\' | \'memory.extract\' | \'memory.write\';',
   },
   {
     name: 'TracePreview',

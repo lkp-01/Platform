@@ -1,0 +1,63 @@
+$ tsx scripts/run-gates.ts doc-quick
+run-gates: doc-quick running 16 gate(s) with 4 worker(s) from 32 available CPU(s), doc-quick cap 4.
+run-gates: start markdown links
+run-gates: start type equivalence
+run-gates: start translation pairing
+run-gates: start markdown wrap
+run-gates: PASS type equivalence (16.17s)
+run-gates: start public repository links
+run-gates: PASS markdown wrap (16.88s)
+run-gates: start doc refs
+run-gates: PASS doc refs (4.88s)
+run-gates: start package README Summaries
+run-gates: PASS package README Summaries (0.77s)
+run-gates: start package README model experience
+run-gates: PASS public repository links (9.10s)
+run-gates: start agent note classification
+run-gates: PASS agent note classification (0.79s)
+run-gates: start agent note format
+run-gates: PASS agent note format (0.82s)
+run-gates: start archived agent notes
+run-gates: PASS markdown links (28.90s)
+run-gates: start skill invocation metadata
+
+== FAILED archived agent notes (2.11s) ==
+[ELIFECYCLE] Command failed with exit code 1.
+command: pnpm run verify-archived-agent-notes
+outcome: exit 1
+$ tsx scripts/verify-archived-agent-notes.ts
+verify-archived-agent-notes: archive rules violated:
+  archived/manifest.json: cannot read baseline "HEAD": fatal: path 'deepseek-harness-master/.agents/notes/archived/manifest.json' exists, but not '.agents/notes/archived/manifest.json'
+hint: Did you mean 'HEAD:deepseek-harness-master/.agents/notes/archived/manifest.json' aka 'HEAD:./.agents/notes/archived/manifest.json'?
+run-gates: start translation prompt
+
+== FAILED translation pairing (29.40s) ==
+[ELIFECYCLE] Command failed with exit code 1.
+command: pnpm run verify-translation-pairing
+outcome: exit 1
+$ tsx scripts/verify-translation-pairing.ts
+verify-translation-pairing: bilingual pairing rules violated (see docs/i18n/README.md):
+  .agents/notes/implemented/feature/2026-09-17-platform-resource-namespaces.md: out of sync — content no longer matches the pair's last confirmed-consistent state in .agents/notes/implemented/feature/2026-09-17-platform-resource-namespaces.i18n.yaml (bring the other side along, then re-record with --write)
+  .agents/notes/implemented/feature/2026-09-17-platform-resource-namespaces.zh.md: out of sync — content no longer matches the pair's last confirmed-consistent state in .agents/notes/implemented/feature/2026-09-17-platform-resource-namespaces.i18n.yaml (bring the other side along, then re-record with --write)
+  docs/config-catalog.zh.md: out of sync — content no longer matches the pair's last confirmed-consistent state in docs/config-catalog.i18n.yaml (bring the other side along, then re-record with --write)
+  packages/business/agent-builder/README.md: out of sync — content no longer matches the pair's last confirmed-consistent state in packages/business/agent-builder/README.i18n.yaml (bring the other side along, then re-record with --write)
+  packages/business/agent-builder/README.zh.md: out of sync — content no longer matches the pair's last confirmed-consistent state in packages/business/agent-builder/README.i18n.yaml (bring the other side along, then re-record with --write)
+  packages/mcp/mcp-client/README.md: out of sync — content no longer matches the pair's last confirmed-consistent state in packages/mcp/mcp-client/README.i18n.yaml (bring the other side along, then re-record with --write)
+  packages/mcp/mcp-client/README.zh.md: out of sync — content no longer matches the pair's last confirmed-consistent state in packages/mcp/mcp-client/README.i18n.yaml (bring the other side along, then re-record with --write)
+run-gates: start doc budgets
+run-gates: PASS skill invocation metadata (0.81s)
+run-gates: start documentation standard tests
+run-gates: PASS translation prompt (0.80s)
+run-gates: start package README limitations
+run-gates: PASS package README model experience (7.29s)
+run-gates: PASS doc budgets (0.77s)
+run-gates: PASS documentation standard tests (6.72s)
+run-gates: PASS package README limitations (7.51s)
+run-gates: unsuccessful gates:
+
+run-gates: 14 passed, 2 failed, 0 skipped in 37.32s.
+  - FAILED translation pairing (29.40s, exit 1)
+    pnpm run verify-translation-pairing
+  - FAILED archived agent notes (2.11s, exit 1)
+    pnpm run verify-archived-agent-notes
+[ELIFECYCLE] Command failed with exit code 1.

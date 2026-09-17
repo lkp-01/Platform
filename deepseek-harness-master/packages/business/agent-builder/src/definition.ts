@@ -28,6 +28,12 @@ export const inputSchema = z.strictObject({
     .refine(ids => ids.every(id => TOOL_CHOICES.some(tool => tool.id === id)), 'Unknown tool'),
 })
 
+/** Managed execution accepts only installed or platform-owned operation namespaces. */
+export const executionInputSchema = inputSchema.extend({ toolIds: z.array(z.string())
+  .refine(ids => new Set(ids).size === ids.length, 'Duplicate tools')
+  .refine(ids => ids.every(id => TOOL_CHOICES.some(tool => tool.id === id)
+    || /^mcp__platform_[a-f0-9]{32}$/.test(id) || ['platform_memory_get', 'platform_memory_put'].includes(id)), 'Unknown tool') })
+
 /** Persistent idempotency token, generated once per browser submission. */
 export const tokenSchema = z.uuid()
 

@@ -1,0 +1,2 @@
+$ tsx scripts/gen-config-catalog.ts
+gen-config-catalog: wrote docs/config-catalog.md.

@@ -25,9 +25,12 @@ import type { ToolDefinition, ToolExecution, ToolExecutionResult } from '@deepse
 import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { mcpDescriptorSchema, selectMcpTools, type McpDescriptor, type McpSelection } from './selection.ts'
 
 /** Resolved options relevant to tool bridging. */
 export interface ToolBridgeOptions {
+  /** Explicit pinned tools; omission retains the ordinary full-server bridge. */
+  selection?: McpSelection[]
   /** Whether a registry conflict is contained or rejects this synchronization. */
   registrationFailure: 'contain' | 'throw'
   serverName: string
@@ -36,6 +39,10 @@ export interface ToolBridgeOptions {
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
 export type ToolDisposers = Map<string, () => void>
+
+/** Transport invocation used by the ordinary connection and credential-refreshing managed adapter. */
+export type McpInvoker = (name: string, args: Record<string, unknown>, exec: ToolExecution,
+  opts: ToolBridgeOptions) => Promise<Record<string, unknown>>
 
 /** Canonical MCP result exposed to PTC mode without discarding protocol blocks. */
 export type McpResult<Structured extends JsonValue = JsonValue> = {
@@ -79,12 +86,13 @@ function listToolsUncached(client: Client, cursor?: string) {
 
 /** Call without the SDK pre-validating an output schema the bridge may not support. */
 function callToolUncached(
-  client: Client,
+  client: Client | McpInvoker,
   rawName: string,
   args: Record<string, unknown>,
   exec: ToolExecution,
   opts: ToolBridgeOptions,
 ) {
+  if (typeof client === 'function') return client(rawName, args, exec, opts)
   return client.request(
     { method: 'tools/call', params: { name: rawName, arguments: args } },
     RawCallToolResultSchema,
@@ -147,6 +155,14 @@ export async function syncTools(
   opts: ToolBridgeOptions,
   previous: ToolDisposers,
 ): Promise<ToolDisposers> {
+  if (opts.selection !== undefined) {
+    try { return await syncSelectedTools(client, ctx, opts, previous) }
+    catch (error) {
+      for (const dispose of previous.values()) dispose()
+      previous.clear()
+      throw error
+    }
+  }
   // Phase 1: fetch and build the next generation without touching the registry.
   const definitions = new Map<string, ToolDefinition>()
   const seenCursors = new Set<string>()
@@ -202,6 +218,66 @@ export async function syncTools(
   return disposers
 }
 
+/** Discover a complete uncached description list using the bridge's protocol adapter.
+ * @param client - connected MCP client.
+ * @param options - optional request deadline and cancellation.
+ * @returns validated raw descriptions, without registering tools.
+ */
+export async function discoverClientTools(client: Client, options?: { signal: AbortSignal; timeout: number }): Promise<McpDescriptor[]> {
+  const result: McpDescriptor[] = []
+  const names = new Set<string>()
+  const cursors = new Set<string>()
+  let cursor: string | undefined
+  do {
+    const page = await client.request({ method: 'tools/list', ...(cursor === undefined ? {} : { params: { cursor } }) },
+      ListToolsResultSchema, options)
+    for (const tool of page.tools) {
+      if (names.has(tool.name)) throw new Error('MCP server listed a tool more than once')
+      names.add(tool.name)
+      result.push(mcpDescriptorSchema.parse({ name: tool.name, description: tool.description ?? '', inputSchema: tool.inputSchema,
+        ...(tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema }),
+        ...(tool.execution?.taskSupport === 'required' ? { taskRequired: true } : {}) }))
+    }
+    cursor = page.nextCursor
+    if (cursor && cursors.has(cursor)) throw new Error('MCP server repeated a tools/list continuation cursor')
+    if (cursor) cursors.add(cursor)
+  } while (cursor)
+  return result
+}
+
+/** Build one pinned definition using the same execution and output projection as ordinary MCP tools.
+ * @param client - connected client for the definition.
+ * @param ctx - capability context.
+ * @param tool - selected remote description and model alias.
+ * @param opts - bridge execution settings.
+ * @returns a native Harness definition; the caller owns registration.
+ */
+export function selectedToolDefinition(client: Client | McpInvoker, ctx: Context, tool: McpSelection,
+  opts: ToolBridgeOptions): ToolDefinition {
+  return createDefinition(client, ctx, tool.publicName ?? publicToolName(opts.serverName, tool.name), tool.name,
+    tool.description, tool.inputSchema, supportedOutputSchema(tool.outputSchema), tool.taskRequired ?? false, opts)
+}
+
+async function syncSelectedTools(client: Client, ctx: Context, opts: ToolBridgeOptions, previous: ToolDisposers): Promise<ToolDisposers> {
+  const selected = selectMcpTools(await discoverClientTools(client), opts.selection ?? [])
+  const definitions = selected.map(tool => selectedToolDefinition(client, ctx, tool, opts))
+  if (new Set(definitions.map(tool => tool.name)).size !== definitions.length) throw new Error('Duplicate selected tool alias')
+  for (const dispose of previous.values()) dispose()
+  const disposers: ToolDisposers = new Map()
+  try {
+    for (const definition of definitions) {
+      let active = true
+      const execute = definition.execute.bind(definition)
+      const unregister = ctx.tools.register({ ...definition, execute: (args, exec) => {
+        if (!active) throw new Error('MCP selected tool generation is no longer available')
+        return execute(args, exec)
+      } })
+      disposers.set(definition.name, () => { active = false; unregister() })
+    }
+    return disposers
+  } catch (error) { for (const dispose of disposers.values()) dispose(); throw error }
+}
+
 /**
  * The shape we read from each MCP content block. Intentionally looser than the
  * SDK's `ContentBlock` type: we're at a network trust boundary (data arrives
@@ -252,7 +328,7 @@ function supportedOutputSchema(candidate: unknown): JsonSchemaNode | undefined {
  * @returns a complete ToolRuntime definition.
  */
 function createDefinition(
-  client: Client,
+  client: Client | McpInvoker,
   ctx: Context,
   publicName: string,
   rawName: string,
@@ -311,7 +387,7 @@ function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefi
  * the ToolRuntime's catch path produces an `isError` result for the model.
  */
 function createExecutor(
-  client: Client,
+  client: Client | McpInvoker,
   ctx: Context,
   rawName: string,
   taskRequired: boolean,

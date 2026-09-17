@@ -182,6 +182,8 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   sidebarRight: 'client-side right-Sidebar navigation face — packages/client/ui-sidebar-right/README.md owns the API',
   sidebarRightTabs: 'client-side right-Sidebar tab-type registry — packages/client/ui-sidebar-right/README.md owns the API',
   documentPreviews: 'client-side document renderer registry — docs/subsystems/sidebar-right.md owns the API',
+  memoryEmbedder: 'optional Host-provided embedding capability — packages/business/agent-builder/README.md owns the integration',
+  memoryExtractor: 'optional Host-provided structured extraction capability — packages/business/agent-builder/README.md owns the integration',
 }
 
 /**
@@ -703,6 +705,11 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentDefinition: 'immutable business definition is owned by packages/business/agent-builder/README.md',
   AgentDefinitionInput: 'business authoring input is owned by packages/business/agent-builder/README.md',
   AgentBuilderCatalog: 'business authoring choices are owned by packages/business/agent-builder/README.md',
+  MemoryItemView: 'governed Memory item projection is owned by packages/business/agent-builder/README.md#platform-resource-namespaces',
+  MemoryWritebackView: 'Memory writeback status projection is owned by packages/business/agent-builder/README.md#platform-resource-namespaces',
+  PlatformWorkspace: 'platform namespace metadata is owned by packages/business/agent-builder/README.md#platform-resource-namespaces',
+  ResourceRef: 'immutable resource references are owned by packages/business/agent-builder/README.md#shared-resources',
+  McpDescriptor: 'pinned MCP descriptions are owned by packages/mcp/mcp-client/README.md#managed-tool-selection',
   SharedResource: 'shared resource metadata is owned by packages/business/agent-builder/README.md#shared-resources',
   ResourceInput: 'resource draft configuration is owned by packages/business/agent-builder/README.md#shared-resources',
   ResourceVersion: 'published resource configuration is owned by packages/business/agent-builder/README.md#shared-resources',

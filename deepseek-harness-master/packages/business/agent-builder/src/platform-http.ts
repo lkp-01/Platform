@@ -39,10 +39,10 @@ function send(res: ServerResponse, status: number, value: unknown): void {
  * @param builder - existing platform use cases.
  * @param governance - initialized membership and identity authority.
  */
-export function mountPlatformHttp(ctx: Context, builder: AgentBuilder, governance: Governance): void {
+export function mountPlatformHttp(ctx: Context, builder: AgentBuilder, governance: Governance | undefined): void {
   const server = ctx.get('webServer')
   if (server === undefined || !server.requiresAccessPolicy) throw new Error('Governance requires webServer.requireAccessPolicy=true')
-  const origins = governance.config.publicOrigin === undefined
+  const origins = governance?.config.publicOrigin === undefined
     ? [`http://127.0.0.1:${server.port}`, `http://localhost:${server.port}`] : [governance.config.publicOrigin]
   ctx.effect(() => server.registerAccessPolicy((req, upgrade) => {
     if (!origins.some(origin => new URL(origin).host === req.headers.host)) return 403
@@ -74,7 +74,8 @@ export function mountPlatformHttp(ctx: Context, builder: AgentBuilder, governanc
         send(res, 405, { error: 'POST required' }); return
       }
       const input = await body(req)
-      if (path === '/platform/login') {
+      if (governance === undefined && (path === '/platform/login' || path === '/platform/logout')) throw new GovernanceError(404, 'Operation not found')
+      if (path === '/platform/login' && governance !== undefined) {
         const { token } = z.strictObject({ token: z.string().min(32).max(256) }).parse(input)
         const session = await governance.login(token)
         const secure = req.headers.origin?.startsWith('https://') === true ? '; Secure' : ''
@@ -82,9 +83,9 @@ export function mountPlatformHttp(ctx: Context, builder: AgentBuilder, governanc
         send(res, 200, { expiresAt: session.expiresAt }); return
       }
       const token = sessionToken(req)
-      const actor = governance.authenticate(token)
+      const actor = governance === undefined ? 'shared-host' : governance.authenticate(token)
       if (actor === undefined) throw new GovernanceError(401, 'Authentication required')
-      if (path === '/platform/logout') {
+      if (path === '/platform/logout' && governance !== undefined) {
         z.strictObject({}).parse(input)
         await governance.logout(token)
         res.setHeader('set-cookie', `${COOKIE}=; Path=/platform; HttpOnly; SameSite=Strict; Max-Age=0`)

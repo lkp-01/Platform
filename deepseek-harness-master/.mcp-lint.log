@@ -1,0 +1,95 @@
+$ tsx scripts/run-oxlint.ts .
+apps/web/tests/scaffold.ts:796:1: error @stylistic(indent): Expected indentation of 6 spaces but found 4.
+apps/web/tests/scaffold.ts:797:1: error @stylistic(indent): Expected indentation of 6 spaces but found 4.
+apps/web/tests/scaffold.ts:798:1: error @stylistic(indent): Expected indentation of 6 spaces but found 4.
+apps/web/tests/scaffold.ts:799:1: error @stylistic(indent): Expected indentation of 8 spaces but found 6.
+apps/web/tests/scaffold.ts:800:1: error @stylistic(indent): Expected indentation of 6 spaces but found 4.
+apps/web/tests/scaffold.ts:801:1: error @stylistic(indent): Expected indentation of 6 spaces but found 4.
+apps/web/tests/scaffold.ts:802:1: error @stylistic(indent): Expected indentation of 6 spaces but found 4.
+apps/web/tests/scaffold.ts:803:1: error @stylistic(indent): Expected indentation of 8 spaces but found 6.
+apps/web/tests/scaffold.ts:804:1: error @stylistic(indent): Expected indentation of 6 spaces but found 4.
+packages/client/ui-agent-preset/src/client/AgentRegistry.tsx:248:25: error typescript(no-non-null-assertion): Forbidden non-null assertion.
+packages/client/ui-agent-preset/src/client/AgentRegistry.tsx:248:71: error typescript(no-non-null-assertion): Forbidden non-null assertion.
+packages/client/ui-agent-preset/src/client/AgentRegistry.tsx:242:1: error @stylistic(max-len): This line has a length of 179. Maximum allowed is 140.
+packages/client/ui-agent-preset/src/client/AgentRegistry.tsx:243:11: error typescript(no-unnecessary-condition): Unnecessary conditional, value is always truthy.
+packages/client/ui-agent-preset/src/client/AgentRegistry.tsx:246:62: error typescript(unbound-method): Avoid referencing unbound methods which may cause unintentional scoping of `this`. help: If your function does not access `this`, you can annotate it with `this: void`, or consider using an arrow function instead.
+packages/client/ui-agent-preset/tests/observability.client.spec.tsx:23:23: error typescript(no-confusing-void-expression): Returning a void expression from an arrow function shorthand is forbidden. help: Add braces to the arrow function.
+packages/client/ui-agent-preset/tests/observability.client.spec.tsx:25:23: error typescript(no-confusing-void-expression): Returning a void expression from an arrow function shorthand is forbidden. help: Add braces to the arrow function.
+apps/web/tests/agent-version.e2e.ts:43:5: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:43:18: error typescript(no-unsafe-member-access): Unsafe member access .effect on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:43:31: error typescript(no-unsafe-return): Unsafe return of a value of type error.
+apps/web/tests/agent-version.e2e.ts:43:31: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:43:44: error typescript(no-unsafe-member-access): Unsafe member access .llm on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:68:20: error typescript(no-unnecessary-type-assertion): This assertion is unnecessary since it does not change the type of the expression.
+apps/web/tests/agent-version.e2e.ts:89:11: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:89:83: error typescript(no-unsafe-member-access): Unsafe member access .items on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:89:26: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:89:39: error typescript(no-unsafe-member-access): Unsafe member access .agentBuilder on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:90:35: error typescript(no-unsafe-return): Unsafe return of a value of type error.
+apps/web/tests/agent-version.e2e.ts:90:105: error typescript(no-unsafe-member-access): Unsafe member access .status on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:90:42: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:90:55: error typescript(no-unsafe-member-access): Unsafe member access .agentBuilder on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:90:100: error typescript(no-unsafe-member-access): Unsafe member access .id on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:98:35: error typescript(no-unsafe-return): Unsafe return of a value of type error.
+apps/web/tests/agent-version.e2e.ts:98:99: error typescript(no-unsafe-member-access): Unsafe member access .items on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:98:42: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:98:55: error typescript(no-unsafe-member-access): Unsafe member access .agentBuilder on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:99:11: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:99:20: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:99:84: error typescript(no-unsafe-member-access): Unsafe member access .items on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:99:27: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:99:40: error typescript(no-unsafe-member-access): Unsafe member access .agentBuilder on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:99:106: error typescript(no-unsafe-member-access): Unsafe member access .id on an `any` value.
+apps/web/tests/agent-version.e2e.ts:99:119: error typescript(no-unsafe-member-access): Unsafe member access .id on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:100:35: error typescript(no-unsafe-return): Unsafe return of a value of type error.
+apps/web/tests/agent-version.e2e.ts:100:106: error typescript(no-unsafe-member-access): Unsafe member access .status on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:100:42: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:100:55: error typescript(no-unsafe-member-access): Unsafe member access .agentBuilder on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:100:101: error typescript(no-unsafe-member-access): Unsafe member access .id on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:102:45: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:102:67: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:103:7: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:102:60: error typescript(no-unsafe-member-access): Unsafe member access .model on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:102:74: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:102:82: error typescript(no-unsafe-member-access): Unsafe member access .tools on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:102:101: error typescript(no-unsafe-return): Unsafe return of a value of type `any`.
+apps/web/tests/agent-version.e2e.ts:102:106: error typescript(no-unsafe-member-access): Unsafe member access .name on an `any` value.
+apps/web/tests/agent-version.e2e.ts:103:19: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:104:92: error typescript(no-unsafe-member-access): Unsafe member access .filter on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:103:19: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:104:49: error typescript(no-unsafe-member-access): Unsafe member access .flatMap on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:103:19: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:104:10: error typescript(no-unsafe-member-access): Unsafe member access .filter on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:103:19: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:103:81: error typescript(no-unsafe-member-access): Unsafe member access .flatMap on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:103:19: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:103:27: error typescript(no-unsafe-member-access): Unsafe member access .messages on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:103:62: error typescript(no-unsafe-member-access): Unsafe member access .role on an `any` value.
+apps/web/tests/agent-version.e2e.ts:103:100: error typescript(no-unsafe-return): Unsafe return of a value of type `any`.
+apps/web/tests/agent-version.e2e.ts:103:108: error typescript(no-unsafe-member-access): Unsafe member access .content on an `any` value.
+apps/web/tests/agent-version.e2e.ts:104:32: error typescript(no-unsafe-member-access): Unsafe member access .type on an `any` value.
+apps/web/tests/agent-version.e2e.ts:104:66: error typescript(no-unsafe-return): Unsafe return of a value of type `any`.
+apps/web/tests/agent-version.e2e.ts:104:66: error typescript(no-unsafe-call): Unsafe call of a(n) `any` typed value.
+apps/web/tests/agent-version.e2e.ts:104:72: error typescript(no-unsafe-member-access): Unsafe member access .text on an `any` value.
+apps/web/tests/agent-version.e2e.ts:104:107: error typescript(no-unsafe-return): Unsafe return of a value of type `any`.
+apps/web/tests/agent-version.e2e.ts:104:107: error typescript(no-unsafe-call): Unsafe call of a(n) `any` typed value.
+apps/web/tests/agent-version.e2e.ts:104:112: error typescript(no-unsafe-member-access): Unsafe member access .startsWith on an `any` value.
+apps/web/tests/agent-version.e2e.ts:106:18: error typescript(no-unsafe-member-access): Unsafe member access .agentVersionId on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:106:50: error typescript(no-unsafe-member-access): Unsafe member access .agentVersionId on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:116:11: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:116:32: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:116:45: error typescript(no-unsafe-member-access): Unsafe member access .agentBuilder on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:116:90: error typescript(no-unsafe-member-access): Unsafe member access .id on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:117:42: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:117:64: error typescript(no-unsafe-member-access): Unsafe member access .agentVersionId on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:118:80: error typescript(no-unsafe-member-access): Unsafe member access .versionId on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:118:19: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:118:32: error typescript(no-unsafe-member-access): Unsafe member access .agentBuilder on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:118:103: error typescript(no-unsafe-member-access): Unsafe member access .agentVersionId on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:119:11: error typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+apps/web/tests/agent-version.e2e.ts:119:24: error typescript(no-unsafe-member-access): Unsafe member access .sessionController on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:120:7: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:120:35: error typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+apps/web/tests/agent-version.e2e.ts:120:24: error typescript(no-unsafe-member-access): Unsafe member access .sessionId on an `error` typed value.
+apps/web/tests/agent-version.e2e.ts:120:54: error typescript(no-unsafe-member-access): Unsafe member access .agentVersionId on an `error` typed value.
+[ELIFECYCLE] Command failed with exit code 1.

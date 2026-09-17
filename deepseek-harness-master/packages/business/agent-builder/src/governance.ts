@@ -1,7 +1,8 @@
 /** Workspace membership and fixed roles on a single durable writer. */
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
-import { defineDomain, domainTable, type Domain, type DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import type { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import { PlatformWorkspaces, memberSchema, workspaceSchema, auditSchema } from './platform-workspaces.ts'
 
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/)
 const roleSchema = z.enum(['admin', 'developer', 'user'])
@@ -19,34 +20,28 @@ export const governanceConfigSchema = z.strictObject({
 }).superRefine((value, ctx) => {
   if (value.publicOrigin !== undefined) {
     const origin = new URL(value.publicOrigin)
-    if (origin.origin !== value.publicOrigin || (origin.protocol !== 'https:' && !['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname))) {
+    if (origin.origin !== value.publicOrigin || (origin.protocol !== 'https:' && !['127.0.0.1', 'localhost',
+      '[::1]'].includes(origin.hostname))) {
       ctx.addIssue({ code: 'custom', message: 'Public origin must be an HTTPS origin, or HTTP loopback' })
     }
   }
   for (const rows of [value.users.map(row => row.id), value.users.map(row => row.tokenHash), value.workspaces.map(row => row.id)]) {
     if (new Set(rows).size !== rows.length) ctx.addIssue({ code: 'custom', message: 'Duplicate governance identity' })
   }
-  if (value.users.some(row => ['shared-host', 'migration'].includes(row.id))) ctx.addIssue({ code: 'custom', message: 'Reserved historical identity' })
+  if (value.users.some(row => ['shared-host', 'migration'].includes(row.id))) ctx.addIssue({ code: 'custom',
+    message: 'Reserved historical identity' })
   for (const workspace of value.workspaces) if (!value.users.some(user => user.id === workspace.adminId && user.active)) {
     ctx.addIssue({ code: 'custom', message: 'Workspace requires an active bootstrap administrator' })
   }
 })
-const memberSchema = z.object({ userId: id, role: roleSchema, revision: z.number().int().positive(), joinedAt: z.string() })
-const auditSchema = z.object({ id: z.string(), actorId: z.string(), action: z.string(), targetId: z.string(), occurredAt: z.string() })
-const workspaceSchema = z.object({ id, name: z.string(), status: z.enum(['active', 'archived']), revision: z.number().int().positive(),
-  createdAt: z.string(), updatedAt: z.string(), members: z.array(memberSchema),
-  memberRevisions: z.record(z.string(), z.number().int().nonnegative()).default({}), audit: z.array(auditSchema) })
-const spec = defineDomain({ name: 'platform_governance', version: 1, tables: {
-  workspaces: domainTable(workspaceSchema),
-  sessions: domainTable(z.object({ userId: id, tokenHash: z.string(), credentialHash: z.string(), expiresAt: z.number() })),
-} })
 type Workspace = z.infer<typeof workspaceSchema>
 /** Workspace metadata returned with the current member's role. */
-export type WorkspaceView = Omit<Workspace, 'members' | 'memberRevisions' | 'audit'> & { role: WorkspaceRole }
+export type WorkspaceView = Omit<Workspace,
+  'members' | 'memberRevisions' | 'audit' | 'creationFingerprint' | 'namespaceOnly'> & { role: WorkspaceRole }
 
 /** Authorization failures expose no foreign resource metadata. */
 export class GovernanceError extends Error {
-  constructor(readonly status: 401 | 403 | 404 | 409, message: string) { super(message) }
+  constructor(readonly status: 400 | 401 | 403 | 404 | 409, message: string) { super(message) }
 }
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex') }
 
@@ -54,7 +49,8 @@ function digest(value: string): string { return createHash('sha256').update(valu
 export class Governance {
   private tail: Promise<unknown> = Promise.resolve()
   private closed = false
-  private constructor(private readonly domain: Domain<typeof spec>, readonly config: z.infer<typeof governanceConfigSchema>) {}
+  private constructor(readonly workspaces: PlatformWorkspaces, readonly config: z.infer<typeof governanceConfigSchema>) {}
+  private get domain() { return this.workspaces.domain }
 
   /** Open governance and initialize only missing workspaces.
    * @param storage - platform storage facility.
@@ -63,10 +59,18 @@ export class Governance {
    */
   static async open(storage: DomainFacility, input: unknown): Promise<Governance> {
     const config = governanceConfigSchema.parse(input)
-    const owner = new Governance(await storage.open(spec), config)
+    const owner = new Governance(await PlatformWorkspaces.open(storage), config)
     try {
       for (const workspace of config.workspaces) {
-        if (owner.domain.table('workspaces').get(workspace.id) !== undefined) continue
+        const existing = owner.domain.table('workspaces').get(workspace.id)
+        if (existing !== undefined) {
+          if (existing.namespaceOnly && existing.members.length === 0) {
+            await owner.domain.table('workspaces').put(workspace.id, { ...existing, namespaceOnly: false,
+              memberRevisions: { [workspace.adminId]: 1 }, members: [{ userId: workspace.adminId, role: 'admin', revision: 1,
+                joinedAt: new Date().toISOString() }] })
+          }
+          continue
+        }
         const now = new Date().toISOString()
         await owner.domain.table('workspaces').put(workspace.id, { id: workspace.id, name: workspace.name, status: 'active',
           revision: 1, createdAt: now, updatedAt: now, memberRevisions: { [workspace.adminId]: 1 },
@@ -82,7 +86,7 @@ export class Governance {
   }
 
   /** Drain operations before closing persistence. */
-  async close(): Promise<void> { this.closed = true; await this.tail; await this.domain.close() }
+  async close(): Promise<void> { this.closed = true; await this.tail; await this.workspaces.close() }
 
   private queue<T>(action: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new Error('Governance is closed'))
@@ -147,10 +151,11 @@ export class Governance {
    * @param workspace - stable identity.
    * @returns detached public metadata.
    */
-  workspace(workspace: string): Omit<Workspace, 'members' | 'memberRevisions' | 'audit'> {
+  workspace(workspace: string): Omit<Workspace, 'members' | 'memberRevisions' | 'audit' | 'creationFingerprint' | 'namespaceOnly'> {
     const row = this.domain.table('workspaces').get(workspace)
     if (row === undefined) throw new GovernanceError(404, 'Resource not found')
-    const { members: _members, memberRevisions: _revisions, audit: _audit, ...view } = row
+    const { members: _members, memberRevisions: _revisions, audit: _audit, creationFingerprint: _fingerprint,
+      namespaceOnly: _namespaceOnly, ...view } = row
     return structuredClone(view)
   }
 
@@ -204,7 +209,8 @@ export class Governance {
       if (!members.some(member => member.role === 'admin' && this.config.users.some(user => user.id === member.userId && user.active))) {
         throw new GovernanceError(409, 'Keep at least one active administrator')
       }
-      await this.domain.table('workspaces').put(workspace, this.changed({ ...row, members, memberRevisions: { ...row.memberRevisions, [userId]: nextRevision } }, actor, 'member:update', userId))
+      await this.domain.table('workspaces').put(workspace, this.changed({ ...row, members,
+        memberRevisions: { ...row.memberRevisions, [userId]: nextRevision } }, actor, 'member:update', userId))
     })
   }
 
@@ -221,7 +227,8 @@ export class Governance {
       this.authorize(actor, workspace, 'admin')
       const row = this.row(workspace)
       if (row.revision !== revision) throw new GovernanceError(409, 'Workspace changed; reload')
-      await this.domain.table('workspaces').put(workspace, this.changed({ ...row, name, status, revision: revision + 1 }, actor, 'workspace:update', workspace))
+      await this.domain.table('workspaces').put(workspace, this.changed({ ...row, name, status, revision: revision + 1 }, actor,
+        'workspace:update', workspace))
     })
   }
 

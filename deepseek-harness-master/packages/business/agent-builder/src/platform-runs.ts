@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { freezeMessage, createToolResultMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
@@ -24,6 +25,8 @@ import type { AgentDeployments } from './deployments.ts'
 import type { AgentHistoryPage, AgentVersion, PlatformRun, PlatformRunId } from './types.ts'
 
 import { runSchema, runStatusSchema, reliableRun, type RunRecord } from './run-schema.ts'
+import { memoryContextSchema } from './memory-schema.ts'
+import type { MemoryContext } from './memory-types.ts'
 import { isRunTerminal, projectRun, transitionRun } from './run-lifecycle.ts'
 import type { RunStatus } from './types.ts'
 
@@ -53,6 +56,7 @@ export class PlatformRuns {
   private stopped: Promise<void> | undefined
   private readonly admissions = new Set<Promise<PlatformRun>>()
   private readonly launching = new Map<string, Promise<void>>()
+  private readonly launchCancellation = new Map<string, AbortController>()
   private readonly pending = new Map<string, Promise<void>>()
   private readonly faults = new Map<string, unknown>()
   private readonly sessions = new Map<string, string>()
@@ -64,6 +68,7 @@ export class PlatformRuns {
   private pollTask: Promise<void> = Promise.resolve()
   private authorize: ((run: PlatformRun) => void) | undefined
   private prepare: ((version: AgentVersion) => Promise<void>) | undefined
+  private prepareTools: ((run: PlatformRun, agent: Agent, signal: AbortSignal) => Promise<() => Promise<void>>) | undefined
   private policy: RuntimePolicy = runtimePolicySchema.parse({})
   private lease: SessionWriteLease | undefined
   private constructor(private readonly ctx: Context, private readonly domain: Domain<typeof spec>, private readonly registry: AgentRegistry,
@@ -114,8 +119,11 @@ export class PlatformRuns {
    * @param policy - resolved deployment limits.
    * @param prepare - immutable version composition preparation.
    * @param authorize - current execution authorization barrier.
+   * @param prepareTools - awaited native tool registration before recovery or model execution.
    */
-  startWorkers(policy: RuntimePolicy, prepare: (version: AgentVersion) => Promise<void>, authorize?: (run: PlatformRun) => void): void {
+  startWorkers(policy: RuntimePolicy, prepare: (version: AgentVersion) => Promise<void>, authorize?: (run: PlatformRun) => void,
+    prepareTools?: (run: PlatformRun, agent: Agent, signal: AbortSignal) => Promise<() => Promise<void>>): void {
+    this.prepareTools = prepareTools
     this.authorize = authorize
     this.policy = policy
     this.prepare = prepare
@@ -139,14 +147,16 @@ export class PlatformRuns {
           await this.domain.table('runs').update(id, row => transitionRun(row, 'CANCELLED', new Date().toISOString()))
           continue
         }
-        if (Date.now() >= Date.parse(stored.runtime.deadlineAt)) { await this.fail(id, 'DEADLINE_EXCEEDED', 'Run deadline exceeded'); continue }
+        if (Date.now() >= Date.parse(stored.runtime.deadlineAt)) { await this.fail(id, 'DEADLINE_EXCEEDED',
+          'Run deadline exceeded'); continue }
         if (stored.runtime.nextAttemptAt !== null && Date.now() < Date.parse(stored.runtime.nextAttemptAt)) continue
         if (this.launching.size >= this.policy.concurrency) break
         const run = await this.domain.table('runs').update(id, row => ({ ...row,
           runtime: { ...reliableRun(row).runtime, attempt: reliableRun(row).runtime.attempt + 1,
             heartbeatAt: new Date().toISOString(), nextAttemptAt: null },
         }))
-        if (reliableRun(run).runtime.attempt > reliableRun(run).policy.maxAttempts) { await this.fail(id, 'ATTEMPTS_EXHAUSTED', 'Run recovery budget exhausted'); continue }
+        if (reliableRun(run).runtime.attempt > reliableRun(run).policy.maxAttempts) { await this.fail(id, 'ATTEMPTS_EXHAUSTED',
+          'Run recovery budget exhausted'); continue }
         const job = Promise.resolve().then(async () => {
           await this.tools.applyResolution(run)
           // Reconcile completion before admitting another model or tool operation.
@@ -160,7 +170,8 @@ export class PlatformRuns {
             await this.domain.table('runs').update(id, row => transitionRun(row, 'BLOCKED', new Date().toISOString(), {
               error: { code: 'RECOVERY_BLOCKED', message: error.message },
             }))
-          } else await this.fail(id, error instanceof GovernanceError ? 'AUTHORIZATION_REVOKED' : 'RECOVERY_FAILED', error instanceof GovernanceError ? 'Execution permission revoked' : String(error))
+          } else await this.fail(id, error instanceof GovernanceError ? 'AUTHORIZATION_REVOKED' : 'RECOVERY_FAILED',
+            error instanceof GovernanceError ? 'Execution permission revoked' : String(error))
         }).catch((error: unknown) => {
           this.faults.set(id, error)
           this.ctx.logger.error('Runtime persistence failed for %s: %s', id, String(error))
@@ -253,6 +264,7 @@ export class PlatformRuns {
     catch { /* The owning facility may already have closed its records. */ }
     await Promise.allSettled(this.admissions)
     await this.pollTask
+    for (const controller of this.launchCancellation.values()) controller.abort()
     for (const sessionId of this.sessions.keys()) {
       this.ctx.agents.get(SessionId(sessionId))?.cancel({ kind: 'disposed' }, { keepInbox: true })
     }
@@ -321,7 +333,8 @@ export class PlatformRuns {
         row = { ...row, format: 2, events: [{ eventId: `${row.id}:0`, runId: row.id, agentId: row.agentId,
           agentVersionId: row.agentVersionId, sessionId: row.sessionId, type: 'run.created', occurredAt: row.createdAt }] }
         if (events.some(event => event.type === 'turn/start')) row = { ...row, status: 'PENDING', error: null }
-        else if (row.status === 'FAILED' && row.error === null) row = { ...row, error: { code: 'EXECUTION_INTERRUPTED', message: 'Legacy execution interrupted' } }
+        else if (row.status === 'FAILED' && row.error === null) row = { ...row, error: { code: 'EXECUTION_INTERRUPTED',
+          message: 'Legacy execution interrupted' } }
       }
       row = projectRun(row, events, new Date().toISOString())
       if (row.runtime === undefined && !isRunTerminal(row.status) && live?.status !== 'running' && !this.launching.has(id)) {
@@ -399,7 +412,8 @@ export class PlatformRuns {
   ): Promise<AgentHistoryPage<PlatformRun>> {
     this.registry.get(workspace, agentId)
     if (status !== undefined) runStatusSchema.parse(status)
-    const selected = [...this.domain.table('runs').entries()].filter(([, row]) => row.agentId === agentId && row.platformWorkspaceId === workspace)
+    const selected = [...this.domain.table('runs').entries()].filter(([,
+      row]) => row.agentId === agentId && row.platformWorkspaceId === workspace)
     await Promise.all(selected.map(([id]) => this.pending.get(id) ?? Promise.resolve()))
     for (const [id] of selected) if (this.faults.has(id)) { await this.reconcile(id); this.faults.delete(id) }
     const rows = selected.map(([id]) => this.record(id))
@@ -419,14 +433,15 @@ export class PlatformRuns {
    * @returns durable admission; preparation failures are retained on the Run.
    */
   async start(
-    workspace: string, agentId: string, prompt: string, token: string, prepare: (version: AgentVersion) => Promise<void>,
+    workspace: string, agentId: string, prompt: string, token: string, prepare: (version: AgentVersion) => Promise<void>, memoryContext?: MemoryContext,
   ): Promise<PlatformRun> {
     tokenSchema.parse(token); z.string().min(1).max(32000).refine(value => value.trim().length > 0).parse(prompt)
+    const trustedMemoryContext = memoryContext === undefined ? undefined : memoryContextSchema.parse(memoryContext)
     if (this.closing) throw new RegistryError('conflict', 'Runtime is stopping')
     const admission = this.registry.exclusive(workspace, agentId, async () => {
       if (this.closing) throw new RegistryError('conflict', 'Runtime is stopping')
       const id = brandString<PlatformRunId>(`run-${createHash('sha256').update(JSON.stringify([workspace, agentId, ...(platformActor() === 'shared-host' ? [] : [platformActor()]), token])).digest('hex').slice(0, 32)}`)
-      const fingerprint = createHash('sha256').update(prompt).digest('hex')
+      const fingerprint = createHash('sha256').update(JSON.stringify([prompt, trustedMemoryContext])).digest('hex')
       const previous = this.domain.table('runs').get(id)
       if (previous !== undefined) {
         if (previous.fingerprint !== fingerprint) throw new RegistryError('conflict', 'Run request token already used for different input')
@@ -437,9 +452,11 @@ export class PlatformRuns {
       const deployment = this.deployments.get(workspace, agentId)
       if (deployment === null) throw new RegistryError('conflict', 'Deploy a saved version before starting a Run')
       const version = this.versions.get(workspace, agentId, deployment.versionId)
-      const row = runSchema.parse({ id, agentId: agent.id, platformWorkspaceId: workspace, agentVersionId: version.id, ownerTeamIdAtStart: agent.ownerTeamId,
+      const row = runSchema.parse({ id, agentId: agent.id, platformWorkspaceId: agent.platformWorkspaceId,
+        agentVersionId: version.id, ownerTeamIdAtStart: agent.ownerTeamId,
         versionNumber: version.versionNumber, configHash: version.configHash, deploymentRevision: deployment.revision,
         sessionId: `session-${id}`, createdAt: new Date().toISOString(), createdBy: platformActor(), status: 'PENDING',
+        ...(trustedMemoryContext === undefined ? {} : { memoryContext: trustedMemoryContext }),
         error: null, fingerprint, format: 3, input: { prompt }, policy: this.policy,
         runtime: { attempt: 0, heartbeatAt: null, checkpointSeq: -1, checkpointAt: null, nextAttemptAt: null,
           deadlineAt: new Date(Date.now() + this.policy.deadlineMs).toISOString(), resolution: null } })
@@ -455,6 +472,11 @@ export class PlatformRuns {
   }
 
   private async launch(row: RunRecord, version: AgentVersion, prepare: (version: AgentVersion) => Promise<void>): Promise<void> {
+    let disposeTools: (() => Promise<void>) | undefined
+    const cancellation = new AbortController()
+    this.launchCancellation.set(row.id, cancellation)
+    const deadline = AbortSignal.timeout(Math.max(0, Date.parse(reliableRun(row).runtime.deadlineAt) - Date.now()))
+    const signal = AbortSignal.any([cancellation.signal, deadline])
     const allowed = () => !this.closing && !isRunTerminal(this.record(row.id).status)
     try {
       if (row.input === null) throw new Error('Accepted Run input is missing')
@@ -484,17 +506,21 @@ export class PlatformRuns {
       await this.domain.table('runs').update(row.id, current => current)
       if (!allowed() || this.record(row.id).cancelRequestedAt !== null) return
       this.authorize?.(publicRun(row))
+      disposeTools = await this.prepareTools?.(publicRun(row), harness, signal)
+      if (!allowed() || this.record(row.id).cancelRequestedAt !== null) return
       const recovered = await this.tools.recover(row, harness)
       if (this.tools.retryAt(row.id) !== null) { await this.setRetry(row.id); return }
       const events = await this.readSession(harness.session)
       const consumed = events.some(event => event.type === 'user/message')
       const queued = [...harness.inbox.nextTurn, ...harness.inbox.nextStep]
       const text = consumed ? `Continue the accepted task from its saved history. Do not repeat completed operations.${recovered.length === 0 ? '' : ` Recovered tool results: ${recovered.join('\n')}`}` : row.input.prompt
-      const message = queued[0] ?? freezeMessage({ role: 'user', id: brandString<MessageId>(consumed ? `${row.id}:resume:${reliableRun(row).runtime.attempt}` : `${row.id}:input`),
+      const message = queued[0] ?? freezeMessage({ role: 'user',
+        id: brandString<MessageId>(consumed ? `${row.id}:resume:${reliableRun(row).runtime.attempt}` : `${row.id}:input`),
         content: [{ type: 'text', text }], source: { kind: 'user' } })
       // Re-deliver a parked message by removing its durable queue entry first.
       if (queued[0] !== undefined) harness.inbox.remove(message.id)
-      await this.domain.table('runs').update(row.id, current => transitionRun(current, 'RUNNING', new Date().toISOString(), { error: null }))
+      await this.domain.table('runs').update(row.id, current => transitionRun(current, 'RUNNING', new Date().toISOString(),
+        { error: null }))
       if (!allowed() || this.record(row.id).cancelRequestedAt !== null) return
       harness.followup(message)
       const heartbeat = setInterval(() => {
@@ -512,6 +538,11 @@ export class PlatformRuns {
     } catch (error) {
       if (this.closing) {
         await this.domain.table('runs').update(row.id, current => transitionRun(current, 'RECOVERING', new Date().toISOString()))
+      } else if (this.record(row.id).cancelRequestedAt !== null) {
+        await this.domain.table('runs').update(row.id, current => isRunTerminal(current.status) ? current
+          : transitionRun(current, 'CANCELLED', new Date().toISOString()))
+      } else if (deadline.aborted) {
+        await this.fail(row.id, 'DEADLINE_EXCEEDED', 'Run deadline exceeded')
       } else if (error instanceof Error && 'code' in error && error.code === 'session/model-unavailable'
         && reliableRun(row).runtime.attempt < reliableRun(row).policy.maxAttempts) {
         await this.domain.table('runs').update(row.id, current => transitionRun(current, 'RETRY_WAIT', new Date().toISOString(), {
@@ -534,7 +565,7 @@ export class PlatformRuns {
           await this.fail(row.id, 'EXECUTION_FAILED', error instanceof Error ? error.message : String(error))
         }
       }
-    }
+    } finally { this.launchCancellation.delete(row.id); await disposeTools?.() }
   }
 
   /** Request cancellation; execution completion, not the click, decides the terminal status.
@@ -562,6 +593,7 @@ export class PlatformRuns {
       return live?.status !== 'running' && !this.launching.has(runId) ? transitionRun(next, 'CANCELLED', at) : next
     })
     if (!isRunTerminal(row.status)) {
+      this.launchCancellation.get(runId)?.abort()
       const agent = this.ctx.agents.get(row.sessionId)
       if (agent === undefined) await this.reconcile(runId)
       else agent.cancel({ kind: 'user' })
@@ -579,7 +611,8 @@ export class PlatformRuns {
    * @param token - idempotent resolution identity.
    * @returns current Run; this call does not execute the tool.
    */
-  async resolve(workspace: string, agentId: string, runId: string, callId: string, decision: 'completed' | 'not-executed', evidence: string, token: string): Promise<PlatformRun> {
+  async resolve(workspace: string, agentId: string, runId: string, callId: string, decision: 'completed' | 'not-executed',
+    evidence: string, token: string): Promise<PlatformRun> {
     this.read(workspace, agentId, runId)
     tokenSchema.parse(token)
     z.enum(['completed', 'not-executed']).parse(decision)

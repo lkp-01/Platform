@@ -69,7 +69,19 @@ The **Resources** panel registers Model, Tool and instruction-only Skill drafts 
 
 Agent drafts select exact resource versions. Format-two Agent versions capture their published contents and hashes; resource publication never upgrades an Agent implicitly. Skills are eagerly composed as literal system instructions and recorded by the existing system-message path, not loaded from mutable user directories. The authored Prompt plus Skill content must fit the existing 32,000-character composition limit. Legacy format-one hashes and renderers remain unchanged; editing a legacy draft imports available installed capabilities as resource references. Model routes use existing Host credentials; no key fields are accepted or persisted by this directory.
 
-Tool resources select existing business operations, and Model resources select installed routes. This directory does not install adapters or freeze external service implementations. Per-version disabling, MCP management, Knowledge Source adapters, Skill scripts and attachments are deferred. Resource lifecycle checks do not retract in-flight remote calls or instructions already seen by a model.
+Tool resources select existing business operations, and Model resources select installed routes. This directory does not install adapters or freeze external service implementations. Per-version disabling, Knowledge Source adapters, Skill scripts and attachments are deferred. MCP and local data resources use the platform namespace adapters below. Resource lifecycle checks do not retract in-flight remote calls or instructions already seen by a model.
+
+### Platform resource namespaces
+
+`workspaceDemo: true` enables the local `/platform` portal without login and is mutually exclusive with `governanceFile`. The WebServer requires `requireAccessPolicy: true`; the Demo accepts only loopback Host/Origin values and exposes only the platform allowlist. Use the [Demo overlay](../../bundle/business-agents/workspace-demo.patch.yml) after the business-agents overlay. The selector creates persistent workspaces, preserves selection on refresh and discards responses from a previous selection. This is a resource namespace demonstration, not multi-user authentication.
+
+[PlatformWorkspaces](src/platform-workspaces.ts) owns the existing governance Domain. Platform IDs are independent of directory Workspace IDs. Agent, Tool, MCP Server, MemoryStore, Eval Dataset, Model, Skill and Credential metadata belong to one workspace. Requests select `workspaceId`; missing scope is rejected. Agent versions and deployments inherit their Agent's ownership. Run admission copies the Agent workspace, and Trace summaries retain that persisted identity. Foreign IDs are unavailable even when names match. Scope applies to queries, references, cursors, usage, execution and recovery without requiring governance to be enabled.
+
+The local MemoryStore and Eval Dataset adapters store bounded text entries keyed by workspace, resource ID and item key. The resource center reads and writes entries after publication. An Agent can bind MemoryStores; Harness receives `platform_memory_get` and `platform_memory_put` with only those store IDs. Eval Dataset supports item storage and preview; scoring, retrieval ranking and vector memory are not included.
+
+MCP Tool versions capture the discovered description and JSON schemas and bind an exact MCP Server version. Use the workspace resource page to publish a server, discover its tools, import selected Tool drafts, and publish them before binding an AgentVersion. Selecting a server in the editor expands only its currently published tools; later discovery never adds permissions to an existing version. Legacy hand-authored MCP tools remain readable but must be discovered and republished before execution. [The Harness MCP adapter](../../mcp/mcp-client/README.md) owns discovery, invocation and result rendering. Platform validates the complete dependency chain before connection and each call, prepares scoped tools before recovery, and attributes existing Trace events to Tool and Server versions.
+
+Servers support Streamable HTTP or a workspace-owned `mcpLaunchProfiles` entry for stdio. A profile contains Host-approved `command`, `args`, `cwd` and optional `credentialEnv`; resource authors select its name rather than executable code. Host `credentialBindings` maps workspace IDs and aliases to the existing credential provider. Secret values exist only in transient connection headers or child environments. Each invocation opens a fresh, serialized connection within its Run/Server binding, revalidates pinned descriptions, and closes before returning; credentials rotate on the next call. `mcpTimeoutMs` bounds an operation (default 60,000 ms), and `maxToolsPerAgent` bounds the resolved set (default 32). MCP write retries require the existing explicit replay-safe declaration.
 
 ### Workspace governance
 
@@ -81,7 +93,7 @@ Administrators manage members, workspace availability and resources. Developers 
 
 Every resource query and binding uses an explicit workspace. Idempotency separates users and workspaces. Tools execute only when bound to the accepted Agent version and still available in that workspace. Queue dispatch, model steps, tool dispatch and recovery check current execution authority; historical `shared-host` tasks cannot acquire a human identity. Revocation does not retract an external call already in flight. Runtime continues to use Harness and its existing execution facts.
 
-Startup validates persisted ownership and references without rewriting historical IDs, version hashes or deployments. Existing workspace IDs must be included in operator configuration; unknown or conflicting references fail startup. Membership bootstrap creates only missing workspaces and never restores removed members. Back up storage and stop the old writer before enabling governance; restore the complete backup and matching configuration to roll back. Governance retains successful member and control-plane changes separately from execution Trace. Control-plane audit append follows the business commit; an audit storage failure reports failure although the business change may already be durable, so use the same request token when retrying.
+Startup validates persisted ownership and references without rewriting historical IDs, version hashes or deployments. Existing workspace IDs must be included in operator configuration; unknown or conflicting references fail startup. Membership bootstrap creates missing workspaces or explicitly adopts administrator-less Demo namespaces, preserving their identity; it never restores removed members in governed workspaces. Back up storage and stop the old writer before enabling governance; restore the complete backup and matching configuration to roll back. Governance retains successful member and control-plane changes separately from execution Trace. Control-plane audit append follows the business commit; an audit storage failure reports failure although the business change may already be durable, so use the same request token when retrying.
 
 From the repository root, `pnpm exec tsx scripts/provision-platform-governance.ts --out ../.business-runtime/governance` creates a new private configuration directory, an overlay and a separate credentials file without printing secrets. It refuses an existing directory. Apply the generated overlay after the business-agents overlay in the existing `dsh` profile, distribute individual credentials privately, and add provisioned users through the workspace administrator's Members page. The portal's **Import installed resources** action registers installed adapters only in the selected workspace. The [governance decision](../../../.agents/notes/implemented/feature/2026-09-17-workspace-governance.md) describes the transport tradeoff.
 
@@ -120,7 +132,7 @@ The [Observability decision](../../../.agents/notes/implemented/feature/2026-09-
 
 #### What the model sees
 
-The authored Prompt is literal role text inside the normal system prompt, including text such as `{{customer}}`. The model receives only the selected business tool schemas and ordinary tool results. The saved provider/model route initializes new conversations without changing the Host default.
+The authored Prompt is literal role text inside the normal system prompt, including text such as `{{customer}}`. The model receives selected business and MCP tool schemas, bound MemoryStore tools and ordinary tool results. The saved provider/model route initializes new conversations without changing the Host default.
 
 #### Token effect
 
@@ -136,8 +148,8 @@ An immutable definition keeps its role and tool prefix stable. Different prompts
 
 This package targets the current single-Host business deployment.
 
-- Agents are shared within the existing Host access scope. Per-user ownership, memory settings and permission editing are not supplied.
-- One default Host deployment is supported. Branches, merges, diffs, multiple deployment environments, tenant authorization and evaluation scoring are deferred. Legacy Sessions are not retrospectively assigned platform versions or Run identities.
+- The legacy Host is single-user. The Demo provides resource namespaces; governed deployments add workspace membership and fixed roles.
+- One default Host deployment is supported. Branches, merges, diffs, multiple deployment environments, cross-company IAM and evaluation scoring are deferred. Legacy Sessions are not retrospectively assigned platform versions or Run identities.
 - The tool catalog uses local demo data and simulated writes. Additional tools and providers must first be configured by the deployment owner.
 - Model catalog validation does not prove remote credentials, quota or service availability; runtime errors remain visible through the existing Session path.
 

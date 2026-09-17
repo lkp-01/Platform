@@ -5,11 +5,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type { PlatformRuns } from './platform-runs.ts'
+import type { MemoryWriteback } from './memory-writeback.ts'
 import type { PlatformRun } from './types.ts'
 import type { RunTrace, RunTracePage, TraceModelStart } from './trace-types.ts'
 import { traceSpec } from './trace-schema.ts'
 import { projectTrace } from './trace-projection.ts'
 import { RegistryError } from './registry.ts'
+import type { ResourceManifest } from './resource-types.ts'
+import { toolOperation } from './shared-resources.ts'
 
 const PAGE_SIZE = 100
 const relevant = new Set(['turn/start', 'turn/end', 'assistant/message', 'assistant/attempt', 'tool/call', 'tool/result', 'llm/retry'])
@@ -28,16 +31,20 @@ export class PlatformTraces {
   private constructor(
     private readonly ctx: Context, private readonly runs: PlatformRuns,
     private readonly domain: Domain<typeof traceSpec>, private readonly previewLimit: number,
+    private readonly manifestForRun?: (run: PlatformRun) => ResourceManifest | undefined,
+    private readonly memoryWriteback?: MemoryWriteback,
   ) {}
 
   /** Open and observe task facts without changing Harness execution.
    * @param ctx - existing Harness and storage services.
    * @param runs - authoritative task owner.
    * @param previewLimit - configured maximum preview characters.
+   * @param manifestForRun - immutable version resources for durable tool attribution.
    * @returns disposable Trace reader and recorder.
    */
-  static async open(ctx: Context, runs: PlatformRuns, previewLimit: number): Promise<PlatformTraces> {
-    const store = new PlatformTraces(ctx, runs, await ctx.storageDomain.open(traceSpec), previewLimit)
+  static async open(ctx: Context, runs: PlatformRuns, previewLimit: number,
+    manifestForRun?: (run: PlatformRun) => ResourceManifest | undefined, memoryWriteback?: MemoryWriteback): Promise<PlatformTraces> {
+    const store = new PlatformTraces(ctx, runs, await ctx.storageDomain.open(traceSpec), previewLimit, manifestForRun, memoryWriteback)
     for (const [, start] of store.domain.table('starts').entries()) {
       const list = store.starts.get(start.runId) ?? []
       list.push(start); store.starts.set(start.runId, list)
@@ -63,6 +70,11 @@ export class PlatformTraces {
       if (run !== undefined) store.schedule(run)
     }))
     store.unlisten.push(ctx.on('domain/changed', (change) => {
+      if (change.domain === 'platform_memory_facts' && change.operation === 'put') {
+        const run = runs.analysisRuns().find(item => item.id === (change.value as { runId: string }).runId)
+        if (run !== undefined) store.schedule(run)
+        return
+      }
       if (change.domain !== 'platform_agent_runs' || change.operation !== 'put') return
       const row = change.value as PlatformRun
       // Checkpoint heartbeats do not change execution facts or the Trace summary.
@@ -118,6 +130,26 @@ export class PlatformTraces {
       if (this.domain.table('starts').get(start.id) === undefined) await this.domain.table('starts').put(start.id, start)
     }
     const { trace, items } = projectTrace(run, events, starts, this.previewLimit, this.runs.toolHistory(run))
+    for (const fact of this.memoryWriteback?.factsForRun(run.id) ?? []) {
+      items.push({ eventId: fact.id, type: fact.type, occurredAt: fact.occurredAt, sourceSeq: null, sourceRunEventId: null,
+        operationId: fact.operationId, turn: null, step: null, provider: null, model: null, tool: null, durationMs: fact.durationMs,
+        preview: null, usage: null, error: fact.errorCode === null ? null : { code: fact.errorCode, message: fact.errorCode },
+        incomplete: fact.status !== 'succeeded', memoryStoreId: fact.storeId,
+        ...(fact.scope === null ? {} : { memoryScope: fact.scope }), resultCount: fact.resultCount, memoryStatus: fact.status })
+    }
+    items.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.eventId.localeCompare(right.eventId))
+    trace.eventCount = items.length
+    const manifest = this.manifestForRun?.(run)
+    for (const item of items) {
+      const tool = manifest?.tools.find(binding => toolOperation(binding) === item.tool)
+      if (tool?.spec.kind !== 'tool') continue
+      item.toolResourceId = tool.resourceId
+      item.toolVersionId = tool.id
+      if (tool.spec.server !== undefined) {
+        item.mcpServerId = tool.spec.server.resourceId
+        item.mcpServerVersionId = tool.spec.server.versionId
+      }
+    }
     if (events.length === 0 && run.startedAt !== null) trace.state = 'partial'
     trace.revision = createHash('sha256').update(JSON.stringify({ trace, items })).digest('hex').slice(0, 24)
     const previous = this.domain.table('summaries').get(run.id)
@@ -140,6 +172,8 @@ export class PlatformTraces {
     await this.pending.get(run.id)
     const summary = this.domain.table('summaries').get(run.id)
     if (summary === undefined) return { ...projectTrace(run, [], [], this.previewLimit).trace, state: 'unavailable' }
+    if (summary.platformWorkspaceId !== run.platformWorkspaceId || summary.agentId !== run.agentId || summary.sessionId !== run.sessionId
+      || summary.agentVersionId !== run.agentVersionId) throw new RegistryError('conflict', 'Trace attribution mismatch')
     return { ...summary, ...(this.faults.has(run.id) ? { state: 'partial' as const } : {}) }
   }
 

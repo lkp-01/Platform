@@ -19,6 +19,10 @@ const event = z.object({
   attemptId: z.string().optional(), attemptNumber: count.optional(), actorId: z.string().optional(), interventionId: z.string().optional(),
   dispatched: z.boolean().optional(),
   turn: count.nullable(), step: count.nullable(), provider: text, model: text, tool: text, durationMs: count.nullable(),
+  toolResourceId: z.string().optional(), toolVersionId: z.string().optional(),
+  mcpServerId: z.string().optional(), mcpServerVersionId: z.string().optional(),
+  memoryStoreId: z.string().optional(), memoryScope: z.enum(['session', 'user', 'agent']).optional(),
+  resultCount: count.optional(), memoryStatus: z.enum(['succeeded', 'failed', 'degraded']).optional(),
   preview: preview.nullable(), usage: usage.nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(), incomplete: z.boolean(),
 }) satisfies z.ZodType<TraceEvent>

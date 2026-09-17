@@ -14,7 +14,7 @@ export const snapshotSchema = z.strictObject({
   model: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }),
   toolIds: z.array(z.string()),
   executionConfig: z.strictObject({
-    rendererVersion: z.union([z.literal(1), z.literal(2)]), includeRuntimeContext: z.literal(false), businessDate: z.iso.date(),
+    rendererVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]), includeRuntimeContext: z.literal(false), businessDate: z.iso.date(),
     compaction: z.strictObject({ thresholdChars: z.number().int().positive(),
       headChars: z.number().int().nonnegative(), tailChars: z.number().int().nonnegative() }),
     modelParameters: z.strictObject({ reasoningEffort: z.string().nullable(), temperature: z.number().nullable(),
@@ -27,7 +27,7 @@ export const versionSchema = z.strictObject({
   id: z.string().regex(/^version-[a-f0-9]{32}$/).transform(value => brandString<AgentVersionId>(value)),
   agentId: z.string().transform(value => brandString<RegistryAgentId>(value)), platformWorkspaceId: z.string(),
   versionNumber: z.number().int().positive(), sourceRevision: z.number().int().positive(),
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   snapshot: snapshotSchema, configHash: z.string(), changeNote: z.string().max(2000), createdBy: z.string(), createdAt: z.iso.datetime(),
 })
 
@@ -41,7 +41,7 @@ export function captureSnapshot(draft: RegistryAgent, resolved?: LlmCallConfig |
   resourcePrompt(draft.prompt, resources)
   return snapshotSchema.parse({ ...(resources === undefined ? {} : { resources }), harnessId: draft.harnessId,
     prompt: draft.prompt, model: draft.model, toolIds: [...draft.toolIds].sort(),
-    executionConfig: { rendererVersion: resources === undefined ? 1 : 2, includeRuntimeContext: false, businessDate: '2026-09-15',
+    executionConfig: { rendererVersion: resources === undefined ? 1 : resources.memoryBindings === undefined ? 2 : 3, includeRuntimeContext: false, businessDate: '2026-09-15',
       compaction: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 },
       modelParameters: { reasoningEffort: resolved?.reasoningEffort ?? null, temperature: resolved?.temperature ?? null,
         maxTokens: resolved?.maxTokens ?? null, stop: resolved?.stop ?? null } } })

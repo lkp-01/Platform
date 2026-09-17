@@ -87,11 +87,17 @@ Images are supported when the current model accepts image input and the harness 
 
 ### Startup, updates, and reconnection
 
-The server's tools appear before the harness starts its first turn. When the server changes its tool list, the model's tool set updates automatically; if the update fails, the previous tool set keeps working.
+The server's tools appear before the harness starts its first turn. When the server changes its tool list, the model's tool set updates automatically; without a pinned selection, a failed update keeps the previous tool set working.
 
 When a server connection drops — for example a local server process crashes — the plugin reconnects automatically with delays that double from 500 ms up to 30 s and then refreshes the tool set; reconnect progress is visible in the logs. During an outage the last known tools stay listed but calls to them fail until the server recovers. After ten consecutive failed attempts the server's tools are removed and reconnection stops until you reload the configuration or restart the harness; a server that stays connected for a while resets that counter. Set `reconnect.enabled: false` to disable automatic reconnection — tools then stay listed but fail until you reload. Editing the configuration entry reloads the server connection in place, and unchanged names stay unchanged.
 
 -----
+
+### Managed tool selection
+
+An optional `selection` pins raw tool names, descriptions, input/output schemas and optional public aliases. Omission bridges every discovered tool; an explicit empty array bridges none. Every initial sync, notification and reconnect applies the selection before registration. Selected descriptions must match; a missing or changed selection removes its previous registrations and fails the update. Unselected additions do not expand the model tool set. These strict semantics replace the ordinary last-good-list behavior only for selected bridges. Scoped registrations remain scoped; `tools.restrict()` alone only masks inherited global tools.
+
+`discoverMcpServer()` returns descriptions without registry effects. `prepareMcpTools()` supplies native definitions for managed owners with fresh credentials and serialized short connections per operation, reusing the same transport, schema validation and output projection as the plugin. The owner registers the returned definitions in its Agent scope and supplies its lifetime signal. Discovery and calls have bounded deadlines; connections close before results return. HTTP redirects are refused to prevent credential forwarding.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -106,7 +112,7 @@ This section explains the design decisions behind the bridge and points at the c
 - **Server-qualified identity.** Every MCP tool has the stable identity `(serverName, rawName)`. The namespace is local configuration, never the remote `serverInfo.name` — the remote name is untrusted, not unique across deployments, and can change on upgrade, none of which may silently rename model-facing tools.
 - **Naming is a pinned contract.** Public names are pure functions of `(serverName, rawName)` and satisfy the DeepSeek function-name contract; lossy normalization appends a 12-hex-char SHA-256 hash so distinct identities never collapse. Session history and permission rules therefore survive HMR swaps, re-syncs, and other servers' changes.
 - **The raw name is the only wire name.** `tools/call` always receives the raw name; the public name is never sent to the server and never parsed to recover the raw name.
-- **Full generation or none.** Syncs swap generations atomically: a fetch failure keeps the previous generation, and a registration conflict rolls back the entire attempted generation.
+- **Full generation or none.** Syncs swap generations atomically: a fetch failure keeps the previous generation in unselected mode, and a registration conflict rolls back the entire attempted generation.
 - **One canonical value, one projection.** The executor returns the protocol-complete canonical `McpResult`; a separate ordered projection prepares Native content, and `finalizeContent` installs it only when the registry's post-execute result is unchanged, so policy blocks and value replacements stay authoritative.
 
 ### Source map
@@ -123,7 +129,7 @@ This section explains the design decisions behind the bridge and points at the c
 
 `apply` resolves the reconnect policy, reserves the `serverName` inside the current registration scope, starts the supervisor, and awaits the initial connection plus discovery. Independent Agent scopes may reuse the same namespace because their tools and transports are isolated; a duplicate inside one scope fails at load. The supervisor serializes every sync — initial, notification, and reconnect — through one queue so two syncs can never interleave their dispose-previous/register-next swap. Disposal cancels pending reconnects, closes the live client, waits for the in-flight attempt and queued syncs to quiesce, and unregisters the current generation.
 
-The supervisor listens for `notifications/tools/list_changed` and queues a re-sync; a fetch-phase failure keeps the previous generation registered, while a registration conflict rolls back the attempted generation. Each outage shares one attempt budget: after `maxAttempts` consecutive failures the tools are unregistered and reconnection stops, and a connection that stays up past `maxDelayMs` resets the budget.
+The supervisor listens for `notifications/tools/list_changed` and queues a re-sync; in unselected mode, a fetch-phase failure keeps the previous generation registered, while a registration conflict rolls back the attempted generation. Each outage shares one attempt budget: after `maxAttempts` consecutive failures the tools are unregistered and reconnection stops, and a connection that stays up past `maxDelayMs` resets the budget.
 
 ### Tool execution internals
 

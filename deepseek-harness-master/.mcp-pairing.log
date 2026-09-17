@@ -1,0 +1,6 @@
+$ tsx scripts/verify-translation-pairing.ts "--write" "packages/business/agent-builder/README.md" "packages/mcp/mcp-client/README.md" "docs/config-catalog.md" ".agents/notes/implemented/feature/2026-09-17-platform-resource-namespaces.md"
+verify-translation-pairing: recorded .agents/notes/implemented/feature/2026-09-17-platform-resource-namespaces.i18n.yaml
+verify-translation-pairing: recorded docs/config-catalog.i18n.yaml
+verify-translation-pairing: recorded packages/business/agent-builder/README.i18n.yaml
+verify-translation-pairing: recorded packages/mcp/mcp-client/README.i18n.yaml
+verify-translation-pairing: 4 record(s) written; run the check to validate the pairs.

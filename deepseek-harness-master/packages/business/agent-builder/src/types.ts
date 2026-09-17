@@ -3,6 +3,7 @@ export type * from './resource-types.ts'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ModelCatalog, ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { MemoryContext } from './memory-types.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -144,7 +145,7 @@ export interface AgentSnapshot {
   model: ModelSelection
   toolIds: string[]
   executionConfig: {
-    rendererVersion: 1 | 2
+    rendererVersion: 1 | 2 | 3
     includeRuntimeContext: false
     businessDate: string
     compaction: { thresholdChars: number; headChars: number; tailChars: number }
@@ -159,7 +160,7 @@ export interface AgentVersion {
   platformWorkspaceId: string
   versionNumber: number
   sourceRevision: number
-  schemaVersion: 1 | 2
+  schemaVersion: 1 | 2 | 3
   snapshot: AgentSnapshot
   configHash: string
   changeNote: string
@@ -214,6 +215,8 @@ export interface PlatformRun {
   sessionId: SessionId
   createdAt: string
   createdBy: string
+  /** Immutable trusted identity used by Memory operations; absent on historical or shared-host tasks. */
+  memoryContext?: MemoryContext | undefined
   status: RunStatus
   startedAt: string | null
   finishedAt: string | null
@@ -233,6 +236,34 @@ export interface PlatformRun {
     deadlineAt: string
     resolution: { token: string; callId: string; decision: 'completed' | 'not-executed'; evidence: string; at: string } | null
   } | undefined
+}
+
+/** Governed Memory Item projection; embeddings and namespace subjects remain server-only. */
+export interface MemoryItemView {
+  id: string
+  namespace: { workspaceId: string; memoryStoreId: string; scope: 'session' | 'user' | 'agent'; subjectId: string }
+  kind: 'session_summary' | 'semantic_fact'
+  content: string
+  source: { kind: 'run' | 'manual' | 'legacy_import' }
+  createdAt: string
+  updatedAt: string
+  expiresAt: string | null
+  status: 'active' | 'deleted'
+  revision: number
+  deletedAt: string | null
+  deletionReason: string | null
+}
+
+/** Durable post-Run Memory writeback projection for task status views. */
+export interface MemoryWritebackView {
+  id: string
+  storeId: string
+  status: 'pending' | 'extracting' | 'candidates_saved' | 'embedding' | 'committing' | 'succeeded' | 'failed' | 'skipped'
+  attempt: number
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+  error: { code: string; message: string } | null
 }
 
 /** Bounded page shared by version, deployment and Run queries. */

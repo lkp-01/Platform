@@ -1,0 +1,11 @@
+# Apply after cordis.patch.yml. Local namespace Demo; no user authentication.
+- id: agent-builder
+  inject: [businessAgentPaths]
+  config:
+    root: !!js businessAgentPaths.managedRoot
+    workspaceDemo: true
+- id: webserver
+  config:
+    host: '127.0.0.1'
+    port: 3000
+    requireAccessPolicy: true

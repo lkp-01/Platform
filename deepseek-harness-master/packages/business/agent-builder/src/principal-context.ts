@@ -1,4 +1,5 @@
 /** Request-local identity captured only by the authenticated platform adapter. */
+import { withWorkspace } from './workspace-context.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 /** A server-verified user and requested workspace; roles are always looked up live. */
@@ -10,7 +11,8 @@ const principal = new AsyncLocalStorage<PlatformPrincipal>()
  * @param action - request operation.
  * @returns the operation result.
  */
-export function withPrincipal<T>(value: PlatformPrincipal, action: () => T): T { return principal.run(value, action) }
+export function withPrincipal<T>(value: PlatformPrincipal, action: () => T): T { return withWorkspace(value.workspaceId,
+  () => principal.run(value, action)) }
 
 /** Read the current request identity.
  * @returns undefined for internal workers and single-user hosts.

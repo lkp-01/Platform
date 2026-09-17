@@ -30,7 +30,7 @@ const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 const prepare = async () => {}
 
-async function fixture(adapter: MockAdapter, options: Partial<RuntimePolicy> = {}, path?: string, workerPrepare = prepare, authorize?: (run: PlatformRun) => void) {
+async function fixture(adapter: MockAdapter, options: Partial<RuntimePolicy> = {}, path?: string, workerPrepare = prepare, authorize?: (run: PlatformRun) => void, prepareTools?: Parameters<PlatformRuns['startWorkers']>[3]) {
   const root = path ?? await mkdtemp(join(tmpdir(), 'reliable-runtime-'))
   if (path === undefined) cleanup.push(() => rm(root, { recursive: true, force: true }))
   const ctx = new Context()
@@ -63,7 +63,7 @@ async function fixture(adapter: MockAdapter, options: Partial<RuntimePolicy> = {
   const versions = await AgentVersions.open(facility, registry)
   const deployments = await AgentDeployments.open(facility, registry, versions)
   const runs = await PlatformRuns.open(ctx, registry, versions, deployments, root)
-  runs.startWorkers(runtimePolicySchema.parse({ pollMs: 20, checkpointMs: 100, ...options }), workerPrepare, authorize)
+  runs.startWorkers(runtimePolicySchema.parse({ pollMs: 20, checkpointMs: 100, ...options }), workerPrepare, authorize, prepareTools)
   let closed = false
   const close = async () => {
     if (closed) return
@@ -83,6 +83,28 @@ async function fixture(adapter: MockAdapter, options: Partial<RuntimePolicy> = {
 }
 
 describe('reliable Platform execution over Harness', () => {
+  it('cancels pending scoped tool preparation before any model request', async () => {
+    const model = new MockAdapter([textResponse('must not execute')])
+    let preparing = false
+    let aborted = false
+    const runtime = await fixture(model, {}, undefined, prepare, undefined, async (_run, _agent, signal) => {
+      preparing = true
+      await new Promise<void>((_resolve, reject) => {
+        const cancel = () => { aborted = true; reject(new Error('Preparation cancelled')) }
+        if (signal.aborted) cancel()
+        else signal.addEventListener('abort', cancel, { once: true })
+      })
+      return async () => {}
+    })
+    const agent = await runtime.makeAgent()
+    const run = await runtime.runs.start('ws', agent.id, 'cancel during discovery', randomUUID(), prepare)
+    await expect.poll(() => preparing).toBe(true)
+    await runtime.runs.cancel('ws', agent.id, run.id)
+    await expect.poll(async () => (await runtime.runs.get('ws', agent.id, run.id)).status).toBe('CANCELLED')
+    expect(aborted).toBe(true)
+    expect(model.requests).toHaveLength(0)
+  })
+
   it('refuses queued recovery after execution authority is revoked', async () => {
     const first = await fixture(new MockAdapter([]), { pollMs: 60000 })
     const agent = await first.makeAgent()
@@ -102,7 +124,7 @@ describe('reliable Platform execution over Harness', () => {
       () => { if (!allowed) throw new GovernanceError(403, 'Revoked') })
     let effects = 0
     f.ctx.tools.register({ name: 'read', description: 'Read', parameters: { type: 'object', properties: {} },
-      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
       execute: async () => { effects++; allowed = false; throw new HarnessError('Temporary reset', 'ECONNRESET') } })
     const agent = await f.makeAgent()
     const run = await f.runs.start('ws', agent.id, 'read once', randomUUID(), prepare)

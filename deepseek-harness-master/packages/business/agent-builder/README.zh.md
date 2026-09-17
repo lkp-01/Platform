@@ -70,7 +70,19 @@ Session 事件仍是执行事实来源。Worker 在步骤和工具边界刷盘�
 
 Agent 草稿选择明确的资源版本。第二版 Agent 快照保存已发布内容及摘要，发布资源不会自动升级 Agent。Skill 作为字面系统指令预先组合，通过现有系统消息记录，不从可变用户目录加载。原始 Prompt 与 Skill 内容合计遵守现有 32,000 字符组合上限。旧格式的 hash 和渲染保持不变；编辑旧草稿时把可用的已接入能力转换为资源引用。模型路由使用已有 Host 凭证，目录不接受或保存密钥字段。
 
-Tool 资源选择现有业务能力，Model 资源选择已安装路由；目录不会安装 Adapter 或固定外部服务实现。按版本禁用、MCP 管理、Knowledge Source Adapter、Skill 脚本和附件暂不提供。资源生命周期检查不能撤销已发出的远端调用或模型已读取的指令。
+Tool 资源选择现有业务能力，Model 资源选择已安装路由；目录不会安装 Adapter 或固定外部服务实现。按版本禁用、Knowledge Source Adapter、Skill 脚本和附件暂不提供。MCP 和本地数据资源使用下述平台命名空间适配器。资源生命周期检查不能撤销已发出的远端调用或模型已读取的指令。
+
+### 平台资源命名空间
+
+`workspaceDemo: true` 启用无需登录的本地 `/platform` 门户，与 `governanceFile` 互斥。WebServer 要求 `requireAccessPolicy: true`；Demo 仅接受回环 Host/Origin，且只开放平台白名单。在 business-agents overlay 后应用 [Demo overlay](../../bundle/business-agents/workspace-demo.patch.yml)。选择器可以创建持久工作区，刷新后保留选择，并丢弃前一个工作区的迟到响应。这是资源命名空间演示，不提供多用户认证。
+
+[PlatformWorkspaces](src/platform-workspaces.ts) 持有已有治理 Domain。平台 ID 与目录 Workspace ID 独立。Agent、Tool、MCP Server、MemoryStore、Eval Dataset、Model、Skill 和 Credential 元数据都归属于一个工作区。请求选择 `workspaceId`，缺失 scope 会被拒绝。Agent 版本和部署继承父 Agent 的归属。Run admission 复制 Agent 工作区，Trace 摘要保留该持久化身份。同名资源也不能通过外区 ID 访问。查询、引用、游标、使用关系、执行和恢复都执行范围检查，不依赖治理是否启用。
+
+本地 MemoryStore 和 Eval Dataset 适配器保存有长度限制的文本条目，键由工作区、资源 ID 和条目键组成。资源发布后可在资源中心读写条目。Agent 可以绑定 MemoryStore；Harness 接收 `platform_memory_get` 和 `platform_memory_put`，只能访问已绑定的存储 ID。Eval Dataset 提供条目保存和预览，不包含评分、检索排序或向量记忆。
+
+MCP Tool 版本保存发现时的描述与 JSON Schema，并绑定精确的 MCP Server 版本。在工作区资源页面发布服务、发现工具、导入选中的 Tool 草稿并发布后，再绑定 AgentVersion。编辑器中的服务选择只展开当前已发布工具；后续发现不会为现有版本增加权限。旧的手写 MCP 工具仍可读取，但执行前必须重新发现并发布。[Harness MCP 适配器](../../mcp/mcp-client/README.zh.md)负责发现、调用与结果渲染。Platform 在连接和每次调用前校验完整依赖链，在恢复前准备作用域内的工具，并为现有 Trace 事件补充 Tool 与 Server 版本归因。
+
+服务支持 Streamable HTTP，或通过工作区专属的 `mcpLaunchProfiles` 条目使用 stdio。启动配置包含 Host 批准的 `command`、`args`、`cwd` 和可选 `credentialEnv`；资源作者选择配置名称，不提交可执行代码。Host 的 `credentialBindings` 将工作区 ID 和别名映射到现有凭证提供方。凭证值仅存在于临时连接请求头或子进程环境。每次调用在所属 Run/Server 绑定内串行建立新连接，重新校验固定描述，并在返回前关闭；下一次调用使用轮换后的凭证。`mcpTimeoutMs` 限制单次操作时长，默认 60,000 毫秒；`maxToolsPerAgent` 限制解析后的工具数量，默认 32。MCP 写操作重试必须使用现有的显式安全重放声明。
 
 ### Workspace 治理
 
@@ -82,7 +94,7 @@ WebServer 必须设置 `requireAccessPolicy: true`，在治理服务就绪前和
 
 所有资源查询和绑定使用明确的工作区。幂等请求按用户和工作区隔离。工具仅在已绑定到接受任务的 Agent 版本、且在该工作区仍可用时执行。队列派发、模型步骤、工具派发和恢复检查当前执行权限；历史 `shared-host` 任务不会获得真实用户身份。权限撤销不会收回已经发出的外部调用。Runtime 继续使用 Harness 及其现有执行事实。
 
-启动时校验持久化归属和引用，不改写历史 ID、版本 hash 或部署。运维配置必须包含既有工作区 ID；未知或冲突的引用导致启动失败。成员初始化只创建缺失的工作区，不恢复已移除成员。启用治理前备份存储并停止旧写入进程；回滚时整体恢复备份及对应配置。治理记录成功的成员和控制面变更，与执行 Trace 分开。控制面审计追加发生在业务提交之后；审计写入失败会报告失败，但业务变更可能已经持久化，因此重试应沿用同一个请求 token。
+启动时校验持久化归属和引用，不改写历史 ID、版本 hash 或部署。运维配置必须包含既有工作区 ID；未知或冲突的引用导致启动失败。成员初始化创建缺失工作区，并按明确配置为仅含命名空间的 Demo 记录指定管理员，不恢复已移除成员。启用治理前备份存储并停止旧写入进程；回滚时整体恢复备份及对应配置。治理记录成功的成员和控制面变更，与执行 Trace 分开。控制面审计追加发生在业务提交之后；审计写入失败会报告失败，但业务变更可能已经持久化，因此重试应沿用同一个请求 token。
 
 在仓库根目录执行 `pnpm exec tsx scripts/provision-platform-governance.ts --out ../.business-runtime/governance`，生成新的私有配置目录、覆盖配置和独立凭证文件，不打印秘密。目标目录已存在时拒绝覆盖。在现有 `dsh` profile 中将生成的覆盖配置放在 business-agents 覆盖配置之后，私下分发各用户凭证，再由工作区管理员通过成员页面添加已配置用户。平台的**导入已安装资源**操作仅为所选工作区注册已安装适配器。[治理决策](../../../.agents/notes/implemented/feature/2026-09-17-workspace-governance.zh.md)说明运输层的取舍。
 
@@ -121,7 +133,7 @@ Agent 分析可比较运行成功率、取消、耗时、Token 和版本。工�
 
 #### 模型看到什么
 
-用户 Prompt 作为原文角色说明进入正常系统提示词，包括 `{{customer}}` 这样的文本。模型接收所选业务工具 Schema 和普通工具结果。保存的 provider/model 路由初始化新对话，不改变 Host 默认模型。
+用户 Prompt 作为原文角色说明进入正常系统提示词，包括 `{{customer}}` 这样的文本。模型接收所选业务和 MCP 工具 Schema、已绑定 MemoryStore 工具及普通工具结果。保存的 provider/model 路由初始化新对话，不改变 Host 默认模型。
 
 #### Token 影响
 
@@ -137,8 +149,8 @@ Prompt 长度和所选 Schema 数量决定新增输入 Token。创建定义不�
 
 本包面向当前单 Host 业务部署。
 
-- Agent 在现有 Host 访问范围内共享，不提供用户所有权、记忆设置或权限编辑。
-- 支持一个默认 Host 部署。分支、合并、差异比较、多部署环境、租户授权、自动重试和评测评分延期实现。旧 Session 不追溯补造平台版本或 Run 身份。
+- 旧版 Host 面向单用户。Demo 提供资源命名空间；启用治理的部署增加工作区成员和固定角色。
+- 支持一个默认 Host 部署。分支、合并、差异比较、多部署环境、跨企业 IAM 和评测评分延期实现。旧 Session 不追溯补造平台版本或 Run 身份。
 - 工具目录使用本地演示数据和模拟写入。新工具与模型提供商需要由部署负责人先行配置。
 - 模型目录校验不证明远程凭据、配额或服务可用；运行错误仍通过现有 Session 流程展示。
 

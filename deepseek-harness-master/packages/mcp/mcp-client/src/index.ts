@@ -19,10 +19,14 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
+import type { McpSelection } from './selection.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
 export type { McpResult } from './tools.ts'
+export { mcpDescriptorSchema, mcpSelectionSchema, selectMcpTools } from './selection.ts'
+export type { McpDescriptor, McpSelection } from './selection.ts'
+export { discoverMcpServer, prepareMcpTools } from './managed.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -48,6 +52,8 @@ const activeServerNames = new WeakMap<object, Set<string>>()
 
 /** Config for connecting to an MCP server via a spawned child process over stdio. */
 export interface StdioConfig {
+  /** Pinned tools to register; an explicit empty list registers no tools. */
+  selection?: McpSelection[]
   /** Selects child-process stdio transport. */
   transport: 'stdio'
   /**
@@ -74,6 +80,8 @@ export interface StdioConfig {
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
 export interface StreamableHttpConfig {
+  /** Pinned tools to register; an explicit empty list registers no tools. */
+  selection?: McpSelection[]
   /** Selects Streamable HTTP transport. */
   transport: 'streamable-http'
   /**
@@ -109,6 +117,8 @@ const Reconnect: z<ReconnectConfig> = z.object({
   maxDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.maxDelayMs),
   maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
 })
+const Selection = z.array(z.object({ name: z.string().required(), description: z.string().required(),
+  inputSchema: z.dict(z.any()).required(), outputSchema: z.dict(z.any()), taskRequired: z.boolean(), publicName: z.string() }))
 
 export const Config = z.union([
   z.object({
@@ -121,6 +131,7 @@ export const Config = z.union([
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     reconnect: Reconnect,
+    selection: Selection,
   }),
   z.object({
     transport: z.const('streamable-http'),
@@ -130,6 +141,7 @@ export const Config = z.union([
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     reconnect: Reconnect,
+    selection: Selection,
   }),
 ]) as unknown as z<ConfigInput, Config>
 

@@ -1,19 +1,27 @@
-/** Run-scoped execution facts; payload previews never contain the complete model stream. */
+/** Run-scoped execution facts
+    payload previews never contain the complete model stream. */
 import type { PlatformRun, RunLifecycleEvent } from './types.ts'
 
 /** Public event vocabulary for the first Run timeline. */
 export type TraceEventType = RunLifecycleEvent['type'] | 'model.call.started' | 'model.call.completed'
   | 'model.call.failed' | 'model.call.cancelled' | 'model.retry.scheduled' | 'tool.call.started'
   | 'tool.call.completed' | 'tool.call.failed' | 'tool.retry.started' | 'tool.retry.completed' | 'tool.retry.failed' | 'final.answer'
-  | 'human.intervention.requested' | 'human.intervention.resolved'
+  | 'human.intervention.requested' | 'human.intervention.resolved' | 'memory.retrieve' | 'memory.extract' | 'memory.write'
 
 /** Bounded, sanitized text with explicit loss information. */
-export interface TracePreview { text: string; truncated: boolean; redacted: boolean }
+export interface TracePreview { text: string
+  truncated: boolean
+  redacted: boolean }
 
-/** Provider accounting for one attempt; input includes cache tokens when an exact total is available. */
+/** Provider accounting for one attempt
+    input includes cache tokens when an exact total is available. */
 export interface TraceUsage {
-  inputTokens: number | null; outputTokens: number; totalTokens: number | null
-  uncachedInputTokens?: number | undefined; cacheReadTokens?: number | undefined; cacheWriteTokens?: number | undefined
+  inputTokens: number | null
+  outputTokens: number
+  totalTokens: number | null
+  uncachedInputTokens?: number | undefined
+  cacheReadTokens?: number | undefined
+  cacheWriteTokens?: number | undefined
 }
 
 /** One immutable timeline fact, linked to either a Session event or a platform observation. */
@@ -24,17 +32,31 @@ export interface TraceEvent {
   sourceSeq: number | null
   sourceRunEventId: string | null
   operationId: string | null
-  attemptId?: string | undefined; attemptNumber?: number | undefined; actorId?: string | undefined; interventionId?: string | undefined
+  attemptId?: string | undefined
+  attemptNumber?: number | undefined
+  actorId?: string | undefined
+  interventionId?: string | undefined
   dispatched?: boolean | undefined
   turn: number | null
   step: number | null
   provider: string | null
   model: string | null
   tool: string | null
+  /** Immutable workspace resource attribution, absent for unmanaged tools. */
+  toolResourceId?: string | undefined
+  toolVersionId?: string | undefined
+  mcpServerId?: string | undefined
+  mcpServerVersionId?: string | undefined
+  /** Memory attribution; no Memory content or namespace subject is retained in Trace. */
+  memoryStoreId?: string | undefined
+  memoryScope?: 'session' | 'user' | 'agent' | undefined
+  resultCount?: number | undefined
+  memoryStatus?: 'succeeded' | 'failed' | 'degraded' | undefined
   durationMs: number | null
   preview: TracePreview | null
   usage: TraceUsage | null
-  error: { code: string; message: string } | null
+  error: { code: string
+    message: string } | null
   /** Interrupted repair, missing call start, or an unpaired result. */
   incomplete: boolean
 }
@@ -70,4 +92,6 @@ export interface RunTrace {
 }
 
 /** Stable source-ordered page. Cursor belongs exclusively to this Run and projection version. */
-export interface RunTracePage { trace: RunTrace; items: TraceEvent[]; nextCursor: string | null }
+export interface RunTracePage { trace: RunTrace
+  items: TraceEvent[]
+  nextCursor: string | null }

@@ -4,6 +4,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { AgentVersionId, PlatformRunId, RegistryAgentId } from './types.ts'
 import { runtimePolicySchema } from './runtime-policy.ts'
+import { memoryContextSchema } from './memory-schema.ts'
 
 /** Public lifecycle vocabulary, also validated at the Remote boundary. */
 export const runStatusSchema = z.enum(['PENDING', 'RUNNING', 'RETRY_WAIT', 'RECOVERING', 'BLOCKED', 'SUCCEEDED', 'FAILED', 'CANCELLED'])
@@ -23,6 +24,7 @@ export const runSchema = z.object({
   platformWorkspaceId: z.string(), configHash: z.string(), deploymentRevision: z.number().int().positive(),
   ownerTeamIdAtStart: z.string().optional(),
   sessionId, createdAt: z.iso.datetime(), createdBy: z.string(),
+  memoryContext: memoryContextSchema.optional(),
   status: z.union([runStatusSchema, legacyStatus]),
   error: z.union([z.object({ code: z.string(), message: z.string() }), z.string().transform(message => ({ code: 'LEGACY_ERROR', message }))]).nullable(),
   fingerprint: z.string(), format: z.number().int().min(1).max(3).default(1),

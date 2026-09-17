@@ -6,11 +6,11 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain, DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { agentResourcesSchema } from './resource-schema.ts'
-import { inputSchema, tokenSchema } from './definition.ts'
+import { executionInputSchema, tokenSchema } from './definition.ts'
 import type { RegistryAgent, RegistryAgentId, RegistryAgentInput, RegistryPage, RegistryQuery, RegistryWorkspace } from './types.ts'
 
 /** Wire validation for editable data, excluding identity and lifecycle. */
-export const registryInputSchema = inputSchema.extend({
+export const registryInputSchema = executionInputSchema.extend({
   resources: agentResourcesSchema.optional(),
   description: z.string().max(2000),
   ownerTeamId: z.string().min(1).max(100),
@@ -132,6 +132,7 @@ export class AgentRegistry {
         && (parsed.ownerTeamId === undefined || record.ownerTeamId === parsed.ownerTeamId)
         && `${record.name} ${record.description} ${record.tags.join(' ')}`.toLocaleLowerCase().includes(search))
       .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    if (parsed.cursor !== undefined && !records.some(record => record.id === parsed.cursor)) throw new RegistryError('not-found', 'Cursor not found')
     const remaining = records.filter(record => parsed.cursor === undefined || record.id > parsed.cursor)
     const page = remaining.slice(0, parsed.limit)
     return { total: records.length, nextCursor: remaining.length > page.length ? page.at(-1)?.id ?? null : null,

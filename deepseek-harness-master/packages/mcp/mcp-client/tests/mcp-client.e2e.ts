@@ -25,6 +25,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { apply } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
+import { discoverMcpServer, prepareMcpTools } from '@deepseek-ai/dsh-mcp-client/src/managed.ts'
 import { publicToolName } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
@@ -130,6 +131,19 @@ describe('fixture server — controlled scenarios', () => {
     // Raw names are not registered.
     expect(names).not.toContain('add')
   })
+
+  it('discovers and executes a pinned stdio tool through the managed adapter', async () => {
+    const signal = new AbortController().signal
+    const discovered = await discoverMcpServer(fixtureConfig, signal)
+    const add = discovered.find(tool => tool.name === 'add')!
+    const definitions = await prepareMcpTools(ctx, [{ ...add, publicName: 'managed_add' }], async () => fixtureConfig, signal)
+    const unregister = ctx.tools.register(definitions[0]!)
+    try {
+      const result = await ctx.tools.execute({ callId: nextCallId(), name: 'managed_add', arguments: { a: 2, b: 3 }, signal })
+      expect(result.isError).toBe(false)
+      expect(textOf(result.content[0])).toBe('5')
+    } finally { unregister() }
+  }, 30000)
 
   it('normalizes the dotted tool name with a deterministic hash suffix', () => {
     const publicName = publicToolName('fixture', 'admin.reset')

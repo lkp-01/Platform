@@ -1,0 +1,22 @@
+$ tsx scripts/gen-cordis-api.ts
+D:\developer\Platform\deepseek-harness-master\packages\typert\generator\src\cordis-catalog.ts:51
+  throw new Error(
+        ^
+
+Error: gen-cordis-catalog: 3 signature type-link coverage violation(s):
+  service method ctx.agentBuilder.mcpDiscover (packages/business/agent-builder/src/index.ts:423) references unclassified type 'McpDescriptor'. Add it to linkedTypePages with its documentation page, to foundationTypeNames if TypeScript or the framework owns it, or to typeLinkExemptions with the non-catalog documentation owner.
+  service method ctx.agentBuilder.mcpDiscover (packages/business/agent-builder/src/index.ts:423) references unclassified type 'ResourceRef'. Add it to linkedTypePages with its documentation page, to foundationTypeNames if TypeScript or the framework owns it, or to typeLinkExemptions with the non-catalog documentation owner.
+  service method ctx.agentBuilder.mcpImport (packages/business/agent-builder/src/index.ts:436) references unclassified type 'ResourceRef'. Add it to linkedTypePages with its documentation page, to foundationTypeNames if TypeScript or the framework owns it, or to typeLinkExemptions with the non-catalog documentation owner.
+    at reportTypeLinkViolations (D:\developer\Platform\deepseek-harness-master\packages\typert\generator\src\cordis-catalog.ts:51:9)
+    at CordisCatalogProjector.collectServices (D:\developer\Platform\deepseek-harness-master\packages\typert\generator\src\cordis-catalog.ts:326:5)
+    at CordisCatalogProjector.project (D:\developer\Platform\deepseek-harness-master\packages\typert\generator\src\cordis-catalog.ts:159:22)
+    at projectCordisCatalog (D:\developer\Platform\deepseek-harness-master\packages\typert\generator\src\cordis-catalog.ts:394:40)
+    at computeOutputs (D:\developer\Platform\deepseek-harness-master\scripts\gen-cordis-catalog.ts:1018:32)
+    at main (D:\developer\Platform\deepseek-harness-master\scripts\gen-cordis-catalog.ts:1133:8)
+    at <anonymous> (D:\developer\Platform\deepseek-harness-master\scripts\gen-cordis-api.ts:9:1)
+    at ModuleJob.run (node:internal/modules/esm/module_job:413:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:660:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.12.0
+[ELIFECYCLE] Command failed with exit code 1.

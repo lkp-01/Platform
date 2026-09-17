@@ -2,7 +2,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { load, JSON_SCHEMA } from 'js-yaml'
-import { ZodError } from 'zod'
+import { z, ZodError } from 'zod'
 import { Context, Service } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -10,7 +10,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-import { TOOL_CHOICES, definitionId, inputSchema, parseDefinition, tokenSchema } from './definition.ts'
+import { TOOL_CHOICES, definitionId, inputSchema, executionInputSchema, parseDefinition, tokenSchema } from './definition.ts'
 import { publishDefinition } from './authoring.ts'
 import { AgentRegistry, registryInputSchema, RegistryError } from './registry.ts'
 import { AgentVersions } from './versions.ts'
@@ -20,10 +20,28 @@ import { runtimePolicySchema, type RuntimePolicy } from './runtime-policy.ts'
 import { Governance, GovernanceError, type WorkspaceAction } from './governance.ts'
 import { currentPrincipal, platformActor } from './principal-context.ts'
 import { mountPlatformHttp } from './platform-http.ts'
-import { SharedResources } from './shared-resources.ts'
+import { mountWorkspaceTools } from './workspace-runtime-resources.ts'
+import { prepareWorkspaceMcp, discoverWorkspaceMcp, type CredentialBindings, type McpLaunchProfiles, type McpRuntimeOptions } from './runtime-mcp.ts'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { McpDescriptor } from '@deepseek-ai/dsh-mcp-client'
+import { WorkspaceResourceData } from './workspace-resource-data.ts'
+import { PlatformWorkspaces, type PlatformWorkspace } from './platform-workspaces.ts'
+import { PlatformConversations } from './platform-conversations.ts'
+import { PlatformMemory } from './memory-store.ts'
+import { resolveMemoryNamespace } from './memory-schema.ts'
+import type { MemoryItem } from './memory-store.ts'
+import type { MemoryNamespace, MemoryScope } from './memory-types.ts'
+import { LocalMemoryProvider } from './memory-provider-local.ts'
+import { RuntimeMemory, type MemoryEmbedder } from './runtime-memory.ts'
+import { directMemoryQuery, memoryContextMessage } from './runtime-memory-context.ts'
+import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { MemoryWriteback } from './memory-writeback.ts'
+import type { MemoryExtractor } from './memory-extraction.ts'
+import { currentWorkspace } from './workspace-context.ts'
+import { SharedResources, toolOperation } from './shared-resources.ts'
 import { resourceInputSchema } from './resource-schema.ts'
 import type { ResourceInput, ResourceStatus, ResourceVersion, SharedResource, ResourceUsage, ResourceManifest,
-  AgentResources } from './resource-types.ts'
+  AgentResources, ResourceRef } from './resource-types.ts'
 import { PlatformTraces } from './platform-traces.ts'
 import { PlatformObservability } from './platform-observability.ts'
 import { validatePrices } from './observability-pricing.ts'
@@ -31,14 +49,19 @@ import { observationQuerySchema } from './observability-schema.ts'
 import type { ObservationQuery, ObservationReport, ObservationRunPage } from './observability-types.ts'
 import type { RunTrace, RunTracePage } from './trace-types.ts'
 import { prepareVersionPreset } from './version-preset.ts'
-import type { AgentVersion, AgentVersionSummary, AgentDeployment, AgentHistoryPage, PlatformRun, RunStatus } from './types.ts'
+import type { AgentVersion, AgentVersionSummary, AgentDeployment, AgentHistoryPage, PlatformRun, RunStatus, MemoryItemView,
+  MemoryWritebackView } from './types.ts'
 import type { AgentBuilderCatalog, AgentDefinition, AgentDefinitionInput, RegistryAgent, RegistryAgentInput,
   RegistryCatalog, RegistryPage, RegistryQuery } from './types.ts'
 
 export type * from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
-  interface Context { agentBuilder: AgentBuilder }
+  interface Context { agentBuilder: AgentBuilder
+    /** Optional host-selected embedding service. Memory retrieval remains disabled when absent. */
+    memoryEmbedder?: MemoryEmbedder
+    /** Optional host-selected structured extractor. Memory writeback remains pending when absent. */
+    memoryExtractor?: MemoryExtractor }
 }
 
 /** Host-owned configuration directory. */
@@ -49,6 +72,16 @@ interface Config {
   observabilityRefreshMs?: number
   /** Operator-owned JSON file with user credential hashes and bootstrap workspaces. */
   governanceFile?: string
+  /** Enable the local namespace Demo without user authentication; mutually exclusive with governanceFile. */
+  workspaceDemo?: boolean
+  /** Host-provisioned workspace/alias mappings to existing credential references. */
+  credentialBindings?: CredentialBindings
+  /** Deadline for one MCP connection and tool operation. */
+  mcpTimeoutMs?: number
+  /** Workspace-owned approved stdio launch profiles. */
+  mcpLaunchProfiles?: McpLaunchProfiles
+  /** Maximum resolved tools per managed Agent, including memory tools. */
+  maxToolsPerAgent?: number
   /** Durable execution budgets and explicit adapter replay declarations. */
   runtime?: Partial<RuntimePolicy>
   /** Maximum Unicode code points retained in each Trace preview. */
@@ -69,7 +102,12 @@ interface Config {
 export default class AgentBuilder extends TypertRemoteService {
   static inject = ['agentPresets', 'sessionController', 'llm', 'agentDefaultModel', 'storageDomain', 'agents', 'sessions',
     'sessionQuery', 'tools', 'sessionPersistence']
-  static Config: s<Config> = s.object({ governanceFile: s.string(), root: s.string().required(),
+  static Config: s<Config> = s.object({ governanceFile: s.string(), workspaceDemo: s.boolean().default(false),
+    credentialBindings: s.dict(s.dict(s.string())).default({}),
+    mcpLaunchProfiles: s.dict(s.dict(s.object({ command: s.string().required(), args: s.array(s.string()).default([]),
+      cwd: s.string().required(), credentialEnv: s.string() }))).default({}),
+    maxToolsPerAgent: s.number().min(0).max(4096).step(1).default(32),
+    mcpTimeoutMs: s.number().min(100).max(300000).step(1).default(60000), root: s.string().required(),
     observabilityPricesFile: s.string(), observabilityRefreshMs: s.number().min(20).max(60000).step(1).default(1000),
     runtime: s.object({
       concurrency: s.number().min(1).max(64).step(1).default(4),
@@ -88,22 +126,37 @@ export default class AgentBuilder extends TypertRemoteService {
     workspaceId: s.string().default('shared'), workspaceName: s.string().default('Shared workspace'),
     ownerTeamId: s.string().default('shared-team'), ownerTeamName: s.string().default('Shared team'),
   })
+  private resourceData!: WorkspaceResourceData
   private resourceStore!: SharedResources
   private governance: Governance | undefined
+  private directory: PlatformWorkspaces | undefined
+  private conversations!: PlatformConversations
+  private memory!: PlatformMemory
+  private writeback!: MemoryWriteback
+  private get namespaced(): boolean { return this.directory !== undefined }
+  private readonly mountedAgents = new WeakSet<object>()
+  private readonly mcpAgents = new WeakMap<Agent, Promise<() => Promise<void>>>()
   private readonly restrictedAgents = new WeakSet<object>()
   private get resources(): SharedResources { return this.resourceStore.forWorkspace(this.workspace.id) }
   private get workspace(): import('./types.ts').RegistryWorkspace {
-    const principal = currentPrincipal()
-    if (this.governance === undefined || principal === undefined) return this.registry.workspace
-    return this.workspaceRecord(principal.workspaceId)
+    const workspace = currentWorkspace()
+    if (!this.namespaced) return this.registry.workspace
+    if (workspace === undefined) throw new GovernanceError(400, 'Workspace scope required')
+    return this.workspaceRecord(workspace)
   }
   private workspaceRecord(id: string): import('./types.ts').RegistryWorkspace {
-    const governance = this.governance
-    if (governance === undefined) throw new Error('Governance is not configured')
-    const row = governance.workspace(id)
+    if (this.directory === undefined) throw new Error('Workspace directory is not configured')
+    let row
+    try { row = this.directory.get(id) } catch { throw new GovernanceError(404, 'Resource not found') }
     return { id: row.id, name: row.name, ownerTeamId: row.id, ownerTeamName: row.name, accessMode: 'governed' }
   }
   private require(action: WorkspaceAction, workspaceId = this.workspace.id): void {
+    if (this.directory !== undefined) {
+      if (currentWorkspace() === undefined) throw new GovernanceError(400, 'Workspace scope required')
+      if (currentWorkspace() !== workspaceId) throw new GovernanceError(404, 'Resource not found')
+      this.workspaceRecord(workspaceId)
+      if (action !== 'read' && this.directory.get(workspaceId).status !== 'active') throw new GovernanceError(403, 'Workspace is archived')
+    }
     if (this.governance === undefined) return
     const principal = currentPrincipal()
     if (principal === undefined) throw new GovernanceError(401, 'Authentication required')
@@ -126,8 +179,8 @@ export default class AgentBuilder extends TypertRemoteService {
     return { ...result, events: [], error: run.error === null ? null : { code: run.error.code, message: 'Run failed' } }
   }
   private authorizeExecution(run: PlatformRun): void {
-    if (this.governance === undefined) return
-    this.governance.authorize(run.createdBy, run.platformWorkspaceId, 'run')
+    if (this.directory !== undefined && this.directory.get(run.platformWorkspaceId).status !== 'active') throw new GovernanceError(403, 'Workspace is archived')
+    this.governance?.authorize(run.createdBy, run.platformWorkspaceId, 'run')
     const agent = this.registry.get(run.platformWorkspaceId, run.agentId)
     if (agent.lifecycle !== 'active') throw new GovernanceError(403, 'Agent is archived')
     this.assertVersionResources(this.versions.get(run.platformWorkspaceId, run.agentId, run.agentVersionId))
@@ -142,18 +195,24 @@ export default class AgentBuilder extends TypertRemoteService {
   private importErrors: string[] = []
 
   protected async [Service.init](): Promise<void> {
+    if (this.config.workspaceDemo && this.config.governanceFile !== undefined) throw new Error('workspaceDemo and governanceFile are mutually exclusive')
     if (this.config.governanceFile !== undefined) {
       this.governance = await Governance.open(this.ctx.storageDomain, JSON.parse(await readFile(this.config.governanceFile, 'utf8')))
       this.stores.push(this.governance)
+      this.directory = this.governance.workspaces
+    } else if (this.config.workspaceDemo) {
+      this.directory = await PlatformWorkspaces.open(this.ctx.storageDomain)
+      this.stores.push(this.directory)
+      await this.directory.ensureLegacy(this.config.workspaceId ?? 'shared', this.config.workspaceName ?? 'Shared workspace')
     }
     this.registry = await AgentRegistry.open(this.ctx.storageDomain, {
       id: this.config.workspaceId ?? 'shared', name: this.config.workspaceName ?? 'Shared workspace',
       ownerTeamId: this.config.ownerTeamId ?? 'shared-team', ownerTeamName: this.config.ownerTeamName ?? 'Shared team',
       accessMode: 'shared-host',
-    }, this.governance === undefined ? undefined : id => this.workspaceRecord(id))
+    }, !this.namespaced ? undefined : id => this.workspaceRecord(id))
     this.ctx.effect(() => async () => {
       const failures: unknown[] = []
-      if (this.runs !== undefined) {
+      if (Object.hasOwn(this, 'runs')) {
         try { await this.runs.stop() } catch (error) { failures.push(error) }
       }
       for (const store of [...this.stores.toReversed(), this.registry]) {
@@ -163,17 +222,27 @@ export default class AgentBuilder extends TypertRemoteService {
     }, 'agent-builder.storage-close')
     this.resourceStore = await SharedResources.open(this.ctx.storageDomain, this.registry.workspace.id)
     this.stores.push(this.resourceStore)
+    this.resourceData = await WorkspaceResourceData.open(this.ctx.storageDomain)
+    this.stores.push(this.resourceData)
+    this.conversations = await PlatformConversations.open(this.ctx.storageDomain)
+    this.stores.push(this.conversations)
+    this.memory = await PlatformMemory.open(this.ctx.storageDomain)
+    this.stores.push(this.memory)
+    this.writeback = await MemoryWriteback.open(this.ctx.storageDomain, this.memory)
+    this.stores.push(this.writeback)
     this.versions = await AgentVersions.open(this.ctx.storageDomain, this.registry)
     this.stores.push(this.versions)
     this.deployments = await AgentDeployments.open(this.ctx.storageDomain, this.registry, this.versions)
     this.stores.push(this.deployments)
     this.runs = await PlatformRuns.open(this.ctx, this.registry, this.versions, this.deployments, this.config.root)
     this.stores.push(this.runs)
-    this.traces = await PlatformTraces.open(this.ctx, this.runs, this.config.tracePreviewChars ?? 4000)
+    this.traces = await PlatformTraces.open(this.ctx, this.runs, this.config.tracePreviewChars ?? 4000,
+      run => this.versions.get(run.platformWorkspaceId, run.agentId, run.agentVersionId).snapshot.resources, this.writeback)
     this.stores.push(this.traces)
     const prices = validatePrices(this.config.observabilityPricesFile === undefined ? []
       : JSON.parse(await readFile(this.config.observabilityPricesFile, 'utf8')))
-    this.observability = await PlatformObservability.open(this.ctx, this.runs, this.traces, this.versions, prices, this.config.observabilityRefreshMs ?? 1000)
+    this.observability = await PlatformObservability.open(this.ctx, this.runs, this.traces, this.versions, prices,
+      this.config.observabilityRefreshMs ?? 1000)
     this.stores.push(this.observability)
     let entries: string[]
     try { entries = await readdir(this.config.root) }
@@ -185,8 +254,8 @@ export default class AgentBuilder extends TypertRemoteService {
         await this.registry.create(this.registry.workspace.id, this.resourceInput(value), value.requestToken, id, 'migration')
       } catch (error) { this.importErrors.push(`${id}: ${error instanceof Error ? error.message : String(error)}`) }
     }
-    const governance = this.governance
-    if (governance !== undefined) {
+    const directory = this.directory
+    if (directory !== undefined) {
       this.registry.validateOwnership((agent) => {
         if (agent.resources !== undefined) this.resourceStore.forWorkspace(agent.platformWorkspaceId).validateReferences(agent.resources)
       })
@@ -196,15 +265,94 @@ export default class AgentBuilder extends TypertRemoteService {
           model: { resourceId: refs.model.resourceId, versionId: refs.model.id },
           tools: refs.tools.map(row => ({ resourceId: row.resourceId, versionId: row.id })),
           skills: refs.skills.map(row => ({ resourceId: row.resourceId, versionId: row.id })),
+          ...(refs.memoryStores === undefined ? {} : { memoryStores: refs.memoryStores.map(row => ({ resourceId: row.resourceId,
+            versionId: row.id })) }),
         })
       })
       this.deployments.validateOwnership()
-      this.resourceStore.validateOwnership((id) => { governance.workspace(id) })
+      this.resourceStore.validateOwnership((id) => { directory.get(id) })
       this.runs.validateOwnership()
     }
-    if (this.governance !== undefined) mountPlatformHttp(this.ctx, this, this.governance)
+    if (this.namespaced) mountPlatformHttp(this.ctx, this, this.governance)
     this.runs.startWorkers(runtimePolicySchema.parse(this.config.runtime ?? {}),
-      version => this.prepareVersion(version), (run) => { this.authorizeExecution(run) })
+      version => this.prepareVersion(version), (run) => { this.authorizeExecution(run) },
+      (run, agent, signal) => this.prepareAgentTools(run, agent, signal))
+    this.ctx.on('domain/changed', (change) => {
+      if (change.domain !== 'platform_agent_runs' || change.operation !== 'put') return
+      const run = change.value as PlatformRun
+      if (run.status === 'SUCCEEDED') void this.scheduleMemoryWriteback(run)
+    })
+    for (const run of this.runs.analysisRuns()) if (run.status === 'SUCCEEDED') void this.scheduleMemoryWriteback(run)
+  }
+  private managedMemoryNamespace(storeId: string, scope: MemoryScope, subjectId?: string): MemoryNamespace {
+    const store = this.resources.get(storeId as ResourceRef['resourceId'])
+    if (store.spec.kind !== 'memory-store' || !['active', 'deprecated'].includes(store.status)) {
+      throw new RegistryError('not-found', 'MemoryStore not found')
+    }
+    const principal = currentPrincipal()
+    if (scope === 'user') {
+      if (principal === undefined) throw new GovernanceError(403, 'User Memory requires an authenticated user')
+      return resolveMemoryNamespace(store.id, scope, { workspaceId: this.workspace.id, agentId: 'manual', userId: principal.userId,
+        conversationId: 'manual' })
+    }
+    if (scope === 'session') {
+      if (principal === undefined || subjectId === undefined) throw new GovernanceError(403, 'Session Memory requires an owned conversation')
+      this.conversations.get(this.workspace.id, principal.userId, subjectId)
+      return resolveMemoryNamespace(store.id, scope, { workspaceId: this.workspace.id, agentId: 'manual', userId: principal.userId,
+        conversationId: subjectId })
+    }
+    if (subjectId === undefined) throw new RegistryError('conflict', 'Agent Memory requires an Agent ID')
+    this.require('admin')
+    this.registry.get(this.workspace.id, subjectId)
+    return resolveMemoryNamespace(store.id, scope, { workspaceId: this.workspace.id, agentId: subjectId,
+      userId: principal?.userId ?? null, conversationId: 'manual' })
+  }
+  private async embedManualItem(namespace: MemoryNamespace, item: MemoryItem): Promise<MemoryItem> {
+    const embedder = this.ctx.get('memoryEmbedder')
+    if (embedder === undefined) return item
+    const vector = await embedder.embed(item.content, new AbortController().signal)
+    return this.memory.setEmbedding(namespace, item.id, item.revision, embedder.model, vector)
+  }
+
+  /** List the local Demo namespaces; governed callers retain member filtering.
+   * @returns Demo workspace views.
+   */
+  demoWorkspaces(): (PlatformWorkspace & { role: 'admin' })[] {
+    if (!this.config.workspaceDemo || this.governance !== undefined || this.directory === undefined) throw new GovernanceError(404, 'Operation not found')
+    return this.directory.list().map(row => ({ ...row, role: 'admin' as const }))
+  }
+  /** Create a local Demo namespace without changing governed permissions.
+   * @param name - display name.
+   * @param token - retry UUID.
+   * @returns persisted namespace.
+   */
+  async demoCreateWorkspace(name: string, token: string): Promise<PlatformWorkspace> {
+    this.demoWorkspaces()
+    const directory = this.directory
+    if (directory === undefined) throw new GovernanceError(404, 'Operation not found')
+    return directory.create(name, token)
+  }
+
+  /** Read a local data resource in the request namespace.
+   * @param ref - immutable resource version.
+   * @param kind - expected resource kind.
+   * @param key - local item key.
+   * @returns stored text or null.
+   */
+  readResourceData(ref: import('./resource-types.ts').ResourceRef, kind: 'memory-store' | 'eval-dataset', key: string): string | null {
+    this.require('edit')
+    return this.resourceData.read(this.resources, ref, kind, key)
+  }
+  /** Write a local data resource without accepting a storage path.
+   * @param ref - immutable resource version.
+   * @param kind - expected resource kind.
+   * @param key - local item key.
+   * @param value - bounded text.
+   */
+  async putResourceData(ref: import('./resource-types.ts').ResourceRef, kind: 'memory-store' | 'eval-dataset', key: string,
+    value: string): Promise<void> {
+    this.require('admin')
+    await this.resourceData.put(this.resources, ref, kind, key, value)
   }
 
   private resourceInput(input: AgentDefinitionInput): RegistryAgentInput {
@@ -247,11 +395,52 @@ export default class AgentBuilder extends TypertRemoteService {
           this.authorizeExecution(run)
           const version = this.versions.get(run.platformWorkspaceId, run.agentId, run.agentVersionId)
           this.assertVersionResources(version)
-          if (this.governance !== undefined && !version.snapshot.toolIds.includes(exec.name)) return 'Tool is not bound to this Agent version'
+          if ((this.namespaced || version.snapshot.resources !== undefined) && !version.snapshot.toolIds.includes(exec.name)) return 'Tool is not bound to this Agent version'
           return undefined
         }
         catch (error) { return error instanceof Error ? error.message : String(error) }
       }), 'agent-builder.resource-availability')
+    })
+    ctx.on('agent/pre-step', async ({ agent }, next) => {
+      const run = this.runs.forSession(agent.session.id)
+      if (run !== undefined) {
+        this.authorizeExecution(run)
+        await this.prepareAgentTools(run, agent)
+      }
+      return next()
+    })
+    ctx.on('agent/pre-step', async ({ agent, step, signal }, next): Promise<PreStepDecision> => {
+      const decision = await next()
+      if (decision.kind === 'reject' || step !== 1 || signal.aborted) return decision
+      const run = this.runs.forSession(agent.session.id)
+      const embedder = this.ctx.get('memoryEmbedder')
+      if (run === undefined || run.memoryContext === undefined || embedder === undefined) return decision
+      const version = this.versions.get(run.platformWorkspaceId, run.agentId, run.agentVersionId)
+      const query = directMemoryQuery(decision.messages)
+      const startedAt = Date.now()
+      const bindings = version.snapshot.resources?.memoryBindings?.filter(binding => binding.retrieval.enabled) ?? []
+      try {
+        const retrieval = await new RuntimeMemory(new LocalMemoryProvider(this.memory), embedder)
+          .retrieve(run.memoryContext, version.snapshot.resources, query, signal)
+        await Promise.all(bindings.flatMap(binding => binding.readScopes.map(scope => this.writeback.recordRetrieval({
+          runId: run.id, operationId: `${run.id}:memory:retrieve:${step}`, storeId: binding.resourceId, scope,
+          occurredAt: new Date().toISOString(), durationMs: Date.now() - startedAt,
+          resultCount: retrieval.items.filter(item => item.storeId === binding.resourceId && item.scope === scope).length,
+          status: 'succeeded', errorCode: null, itemIds: retrieval.items.filter(item => item.storeId === binding.resourceId
+            && item.scope === scope).map(item => item.itemId),
+        }))))
+        const message = memoryContextMessage(retrieval)
+        return message === null ? decision : { ...decision, messages: [...decision.messages, message] }
+      } catch (error) {
+        if (signal.aborted) throw error
+        await Promise.all(bindings.flatMap(binding => binding.readScopes.map(scope => this.writeback.recordRetrieval({
+          runId: run.id, operationId: `${run.id}:memory:retrieve:${step}`, storeId: binding.resourceId, scope,
+          occurredAt: new Date().toISOString(), durationMs: Date.now() - startedAt, resultCount: 0, status: 'degraded',
+          errorCode: 'MEMORY_RETRIEVAL_FAILED', itemIds: [],
+        }))))
+        this.ctx.logger.warn('Memory retrieval degraded for %s: %s', run.id, error instanceof Error ? error.message : String(error))
+        return decision
+      }
     })
     ctx.on('agent/request', async ({ agent }, next) => {
       const inherited = await next()
@@ -260,11 +449,101 @@ export default class AgentBuilder extends TypertRemoteService {
       this.authorizeExecution(run)
       const version = this.versions.get(run.platformWorkspaceId, run.agentId, run.agentVersionId)
       this.assertVersionResources(version)
-      if (this.governance !== undefined && !this.restrictedAgents.has(agent)) {
-        agent.ctx.effect(() => agent.ctx.tools.restrict({ allow: version.snapshot.toolIds }), 'platform.bound-tools')
+      if ((this.namespaced || version.snapshot.resources !== undefined) && !this.restrictedAgents.has(agent)) {
+        agent.ctx.effect(() => agent.ctx.tools.restrict({ allow: version.snapshot.toolIds.filter(id => TOOL_CHOICES.some(tool => tool.id === id)) }), 'platform.bound-tools')
         this.restrictedAgents.add(agent)
       }
+      if ((this.namespaced || version.snapshot.resources !== undefined)
+        && agent.ctx.tools.schemas(agent).some(tool => !version.snapshot.toolIds.includes(tool.name))) {
+        throw new RegistryError('conflict', 'An unbound tool is registered in this Agent scope')
+      }
       return versionCallConfig(version)
+    })
+  }
+
+  private mcpOptions(): McpRuntimeOptions {
+    return { timeoutMs: this.config.mcpTimeoutMs ?? 60000, credentials: this.config.credentialBindings ?? {},
+      launchProfiles: this.config.mcpLaunchProfiles ?? {} }
+  }
+
+  private prepareAgentTools(run: PlatformRun, agent: Agent, signal?: AbortSignal): Promise<() => Promise<void>> {
+    const existing = this.mcpAgents.get(agent)
+    if (existing !== undefined) return existing
+    const lifetime = new AbortController()
+    const disposers: (() => void)[] = []
+    const active = new Set<Promise<unknown>>()
+    let disposal: Promise<void> | undefined
+    const dispose = () => disposal ??= (async () => {
+      lifetime.abort()
+      for (const unregister of disposers.splice(0).reverse()) unregister()
+      await Promise.allSettled([...active])
+      this.mcpAgents.delete(agent)
+    })()
+    const pending = (async () => {
+      const version = this.versions.get(run.platformWorkspaceId, run.agentId, run.agentVersionId)
+      const manifest = version.snapshot.resources
+      if (manifest === undefined) return dispose
+      const resources = this.resourceStore.forWorkspace(run.platformWorkspaceId)
+      const tools = await prepareWorkspaceMcp(this.ctx, resources, manifest, this.mcpOptions(),
+        signal === undefined ? lifetime.signal : AbortSignal.any([signal, lifetime.signal]))
+      lifetime.signal.throwIfAborted()
+      resources.assertAvailable(manifest)
+      for (const tool of tools) disposers.push(agent.ctx.tools.register({ ...tool, execute: (args, exec) => {
+        const work = tool.execute(args, exec)
+        active.add(work)
+        void work.finally(() => active.delete(work)).catch(() => undefined)
+        return work
+      } }))
+      if (!this.mountedAgents.has(agent)) {
+        mountWorkspaceTools(agent, resources, manifest, this.resourceData)
+        this.mountedAgents.add(agent)
+      }
+      return dispose
+    })().catch(async (error: unknown) => { await dispose(); throw error })
+    this.mcpAgents.set(agent, pending)
+    agent.ctx.effect(() => async () => {
+      lifetime.abort()
+      await pending.catch(() => undefined)
+      await dispose()
+    }, 'platform.mcp-lifetime')
+    return pending
+  }
+
+  /** Discover a published workspace MCP server without changing any binding.
+   * @param ref - exact server version.
+   * @returns validated public tool descriptions.
+   */
+  @Remote('mcpDiscover')
+  async mcpDiscover(ref: ResourceRef): Promise<McpDescriptor[]> {
+    this.require('admin')
+    return this.registryCall(() => discoverWorkspaceMcp(this.ctx, this.resources, ref, this.mcpOptions(),
+      AbortSignal.timeout(this.config.mcpTimeoutMs ?? 60000)))
+  }
+
+  /** Import one discovered operation as a draft without publishing it.
+   * @param ref - exact server version.
+   * @param operation - raw remote operation to discover again.
+   * @param token - retry UUID.
+   * @returns existing or newly created draft.
+   */
+  @Remote('mcpImport')
+  async mcpImport(ref: ResourceRef, operation: string, token: string): Promise<SharedResource> {
+    this.require('admin')
+    const descriptor = (await this.mcpDiscover(ref)).find(tool => tool.name === operation)
+    if (descriptor === undefined) throw new RegistryError('conflict', 'MCP tool no longer available')
+    if (descriptor.taskRequired) throw new RegistryError('conflict', 'This MCP tool requires unsupported task-based execution')
+    return this.registryCall(async () => {
+      const directory = this.resources
+      const existing = directory.list().find(row => row.spec.kind === 'tool' && row.spec.operation === operation
+        && row.spec.server?.resourceId === ref.resourceId && row.spec.server.versionId === ref.versionId)
+      if (existing !== undefined) {
+        if (existing.spec.kind !== 'tool' || JSON.stringify(existing.spec.descriptor) === JSON.stringify(descriptor)) return existing
+        return directory.update(existing.id, existing.revision, { name: existing.name, description: existing.description,
+          ownerTeamId: existing.ownerTeamId, spec: { ...existing.spec, descriptor } })
+      }
+      const server = directory.binding(ref, 'mcp-server', false)
+      return directory.create({ name: `${server.name} / ${operation}`.slice(0, 100), description: descriptor.description.slice(0, 2000),
+        ownerTeamId: this.workspace.ownerTeamId, spec: { kind: 'tool', operation, server: ref, descriptor } }, token)
     })
   }
 
@@ -274,7 +553,7 @@ export default class AgentBuilder extends TypertRemoteService {
    */
   @Remote('catalog')
   async catalog(): Promise<AgentBuilderCatalog> {
-    if (this.governance !== undefined) throw new GovernanceError(403, 'Use the Workspace catalog')
+    if (this.namespaced) throw new GovernanceError(403, 'Use the Workspace catalog')
     const models = await this.ctx.sessionController.modelCatalog()
     const agents: AgentDefinition[] = []
     for (const preset of await this.ctx.agentPresets.list()) {
@@ -291,7 +570,8 @@ export default class AgentBuilder extends TypertRemoteService {
    */
   @Remote('get')
   async get(id: string): Promise<AgentDefinition> {
-    if (this.governance !== undefined) { this.require('edit'); if (!['customer-service', 'data', 'operations'].includes(id)) throw new GovernanceError(404, 'Resource not found') }
+    if (this.namespaced) { this.require('edit'); if (!['customer-service', 'data',
+      'operations'].includes(id)) throw new GovernanceError(404, 'Resource not found') }
     const preset = await this.ctx.agentPresets.resolve(id)
     const text = await readFile(preset.path, 'utf8')
     if (resolve(preset.path) === resolve(this.config.root, id, 'agent.cordis.yml')) {
@@ -318,7 +598,7 @@ export default class AgentBuilder extends TypertRemoteService {
    */
   @Remote('create')
   async create(input: AgentDefinitionInput, requestToken: string): Promise<AgentDefinition> {
-    if (this.governance !== undefined) throw new GovernanceError(403, 'Use Workspace authoring')
+    if (this.namespaced) throw new GovernanceError(403, 'Use Workspace authoring')
     const parsed = inputSchema.safeParse(input)
     const token = tokenSchema.safeParse(requestToken)
     if (!parsed.success) throw new RemoteError('gateway/bad-request', parsed.error.message, {})
@@ -428,7 +708,7 @@ export default class AgentBuilder extends TypertRemoteService {
   async versionCreate(workspaceId: string, id: string, revision: number, token: string, note: string): Promise<AgentVersion> {
     this.require('edit', workspaceId)
     return this.registryCall(() => this.versions.create(workspaceId, id, revision, token, note, async (draft) => {
-      inputSchema.parse({ name: draft.name, prompt: draft.prompt, model: draft.model, toolIds: draft.toolIds })
+      executionInputSchema.parse({ name: draft.name, prompt: draft.prompt, model: draft.model, toolIds: draft.toolIds })
       await this.validateModel(draft)
       return this.ctx.llm.resolveCallConfig({ provider: draft.model.provider, model: draft.model.model })
     }, draft => draft.resources === undefined ? undefined : this.resources.resolve(draft.resources, true)))
@@ -505,13 +785,38 @@ export default class AgentBuilder extends TypertRemoteService {
    * @param id - Agent identity.
    * @param prompt - task input.
    * @param token - stable admission UUID.
+   * @param conversationId - optional owned business conversation for session-scoped Memory.
    * @returns task attribution and current status.
    */
   @Remote('runStart')
-  async runStart(workspaceId: string, id: string, prompt: string, token: string): Promise<PlatformRun> {
+  async runStart(workspaceId: string, id: string, prompt: string, token: string, conversationId?: string): Promise<PlatformRun> {
     this.require('run', workspaceId)
+    const principal = currentPrincipal()
+    const conversation = principal === undefined ? undefined
+      : await this.conversations.getOrCreate(workspaceId, principal.userId, conversationId, token)
     return this.registryCall(async () => this.projectRun(
-      await this.runs.start(workspaceId, id, prompt, token, version => this.prepareVersion(version))))
+      await this.runs.start(workspaceId, id, prompt, token, version => this.prepareVersion(version), conversation === undefined ? undefined : {
+        workspaceId, agentId: id, userId: principal!.userId, conversationId: conversation.id,
+      })))
+  }
+
+  /** Schedule eligible post-Run Memory writebacks without changing the completed Run outcome.
+   * @param run - completed task with persisted Memory identity.
+   */
+  private async scheduleMemoryWriteback(run: PlatformRun): Promise<void> {
+    try {
+      const bindings = this.versions.get(run.platformWorkspaceId, run.agentId, run.agentVersionId).snapshot.resources?.memoryBindings ?? []
+      const extractor = this.ctx.get('memoryExtractor')
+      const embedder = this.ctx.get('memoryEmbedder')
+      for (const binding of bindings) {
+        const job = await this.writeback.schedule(run, binding)
+        if (job !== null && extractor !== undefined && embedder !== undefined) {
+          await this.writeback.process(job.id, extractor, embedder, new AbortController().signal)
+        }
+      }
+    } catch (error) {
+      this.ctx.logger.warn('Memory writeback scheduling failed for %s: %s', run.id, error instanceof Error ? error.message : String(error))
+    }
   }
 
   /** List real platform tasks, independently of legacy Sessions.
@@ -630,7 +935,8 @@ export default class AgentBuilder extends TypertRemoteService {
    * @returns Run queued for recovery after the decision is durable.
    */
   @Remote('runResolve')
-  async runResolve(workspaceId: string, id: string, runId: string, callId: string, decision: 'completed' | 'not-executed', evidence: string, token: string): Promise<PlatformRun> {
+  async runResolve(workspaceId: string, id: string, runId: string, callId: string, decision: 'completed' | 'not-executed',
+    evidence: string, token: string): Promise<PlatformRun> {
     this.require('admin', workspaceId)
     return this.registryCall(() => this.runs.resolve(workspaceId, id, runId, callId, decision, evidence, token))
   }
@@ -652,7 +958,7 @@ export default class AgentBuilder extends TypertRemoteService {
   private async prepareVersion(version: AgentVersion): Promise<void> {
     this.assertVersionResources(version)
     const input = { name: version.id, prompt: version.snapshot.prompt, model: version.snapshot.model, toolIds: version.snapshot.toolIds }
-    inputSchema.parse(input)
+    executionInputSchema.parse(input)
     await this.validateModel(input)
     await this.ctx.llm.resolveCallConfig(versionCallConfig(version))
     await prepareVersionPreset(this.config.root, version)
@@ -738,7 +1044,8 @@ export default class AgentBuilder extends TypertRemoteService {
         for (const summary of page.items) {
           const agent = this.registry.get(workspace, summary.id)
           const refs = agent.resources
-          if (refs !== undefined && [refs.model, ...refs.tools, ...refs.skills].some(ref => ref.resourceId === id)) {
+          if (refs !== undefined && [refs.model, ...refs.tools, ...refs.skills,
+            ...(refs.memoryStores ?? [])].some(ref => this.resources.dependsOn(ref, id))) {
             result.push({ agentId: agent.id, agentName: agent.name, versionId: null, versionNumber: null, deployed: false })
           }
           let versionCursor: number | null = 0
@@ -746,7 +1053,9 @@ export default class AgentBuilder extends TypertRemoteService {
             const versions = this.versions.list(workspace, agent.id, versionCursor)
             for (const item of versions.items) {
               const manifest = this.versions.get(workspace, agent.id, item.id).snapshot.resources
-              if (manifest !== undefined && [manifest.model, ...manifest.tools, ...manifest.skills].some(ref => ref.resourceId === id)) {
+              if (manifest !== undefined && [manifest.model, ...manifest.tools, ...manifest.skills,
+                ...(manifest.memoryStores ?? [])].some(ref => this.resources.dependsOn({ resourceId: ref.resourceId,
+                versionId: ref.id }, id))) {
                 result.push({ agentId: agent.id, agentName: agent.name, versionId: item.id, versionNumber: item.versionNumber,
                   deployed: this.deployments.get(workspace, agent.id)?.versionId === item.id })
               }
@@ -758,6 +1067,122 @@ export default class AgentBuilder extends TypertRemoteService {
       } while (cursor !== undefined)
       return result
     })
+  }
+
+  /** List visible Memory Items in one server-derived scope.
+   * @param storeId - MemoryStore identity in the current Workspace.
+   * @param scope - requested Memory scope.
+   * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+   * @param limit - bounded item count.
+   * @returns active, non-expired items with their attributable sources.
+   */
+  @Remote('memoryListItems')
+  memoryListItems(storeId: string, scope: 'session' | 'user' | 'agent', subjectId: string | undefined, limit?: number): MemoryItemView[] {
+    this.require('edit')
+    const namespace = this.managedMemoryNamespace(storeId, scope, subjectId)
+    return this.memory.list(namespace, z.number().int().min(1).max(100).parse(limit ?? 100))
+  }
+
+  /** Read one Item only after resolving the caller's Memory namespace.
+   * @param storeId - MemoryStore identity in the current Workspace.
+   * @param scope - requested Memory scope.
+   * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+   * @param itemId - opaque Item identity.
+   * @returns the visible Item, or a not-found error for foreign IDs.
+   */
+  @Remote('memoryGetItem')
+  memoryGetItem(storeId: string, scope: 'session' | 'user' | 'agent', subjectId: string | undefined, itemId: string): MemoryItemView {
+    this.require('edit')
+    const item = this.memory.get(this.managedMemoryNamespace(storeId, scope, subjectId), itemId)
+    if (item === null) throw new RegistryError('not-found', 'Memory Item not found')
+    return item
+  }
+
+  /** Create an attributable manual Item within a server-derived Memory scope.
+   * @param storeId - MemoryStore identity in the current Workspace.
+   * @param scope - requested Memory scope.
+   * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+   * @param content - operator-maintained reference content.
+   * @param reason - audit reason for the manual change.
+   * @param operationKey - stable caller retry key.
+   * @returns Item, with an embedding when the Host configured an embedding service.
+   */
+  @Remote('memoryCreateItem')
+  async memoryCreateItem(storeId: string, scope: 'session' | 'user' | 'agent', subjectId: string | undefined, content: string, reason: string,
+    operationKey: string): Promise<MemoryItemView> {
+    this.require('admin')
+    const namespace = this.managedMemoryNamespace(storeId, scope, subjectId)
+    const item = await this.memory.write(namespace, { operationKey: `manual:${z.string().min(1).max(160).parse(operationKey)}`,
+      kind: 'semantic_fact', content, source: { kind: 'manual', actorId: platformActor(), reason } })
+    return this.embedManualItem(namespace, item)
+  }
+
+  /** Tombstone a Memory Item so it immediately leaves retrieval and cannot be revived by a retry.
+   * @param storeId - MemoryStore identity in the current Workspace.
+   * @param scope - requested Memory scope.
+   * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+   * @param itemId - opaque Item identity.
+   * @param revision - optimistic Item revision.
+   * @param reason - operator deletion reason.
+   * @returns durable tombstone metadata.
+   */
+  @Remote('memoryDeleteItem')
+  memoryDeleteItem(storeId: string, scope: 'session' | 'user' | 'agent', subjectId: string | undefined, itemId: string, revision: number,
+    reason: string): Promise<MemoryItemView> {
+    this.require('admin')
+    return this.memory.delete(this.managedMemoryNamespace(storeId, scope, subjectId), itemId, revision, reason)
+  }
+
+  /** Import one explicitly selected legacy KV value into a selected scoped namespace.
+   * @param storeId - MemoryStore identity in the current Workspace.
+   * @param legacyKey - legacy local-adapter key chosen by an operator.
+   * @param scope - destination Memory scope.
+   * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+   * @returns imported Item; existing retries return the same Item.
+   */
+  @Remote('memoryMigrateLegacyItem')
+  async memoryMigrateLegacyItem(storeId: string, legacyKey: string, scope: 'session' | 'user' | 'agent',
+    subjectId?: string): Promise<MemoryItemView> {
+    this.require('admin')
+    const namespace = this.managedMemoryNamespace(storeId, scope, subjectId)
+    const store = this.resources.get(storeId as ResourceRef['resourceId'])
+    const version = store.versions.findLast(item => item.spec.kind === 'memory-store')
+    if (version === undefined) throw new RegistryError('not-found', 'MemoryStore has no published version')
+    const key = z.string().min(1).max(200).parse(legacyKey)
+    const content = this.resourceData.read(this.resources, { resourceId: store.id, versionId: version.id }, 'memory-store', key)
+    if (content === null) throw new RegistryError('not-found', 'Legacy Memory value not found')
+    const item = await this.memory.write(namespace, { operationKey: `legacy:${key}:${scope}:${namespace.subjectId}`,
+      kind: 'semantic_fact', content, source: { kind: 'legacy_import', actorId: platformActor(), legacyKey: key } })
+    return this.embedManualItem(namespace, item)
+  }
+
+  /** Read post-Run Memory writeback status without exposing another task's work.
+   * @param workspaceId - organization scope.
+   * @param agentId - owning Agent identity.
+   * @param runId - completed task identity.
+   * @returns every Store writeback job created for the Run.
+   */
+  @Remote('memoryGetWriteback')
+  async memoryGetWriteback(workspaceId: string, agentId: string, runId: string): Promise<MemoryWritebackView[]> {
+    this.require('read', workspaceId)
+    await this.readableRun(workspaceId, agentId, runId)
+    return this.writeback.forRun(runId)
+  }
+
+  /** Retry a failed Memory writeback without rerunning the completed Agent task.
+   * @param workspaceId - organization scope.
+   * @param agentId - owning Agent identity.
+   * @param runId - completed task identity.
+   * @param jobId - durable Memory writeback job identity.
+   * @returns retry-ready job state.
+   */
+  @Remote('memoryRetryWriteback')
+  async memoryRetryWriteback(workspaceId: string, agentId: string, runId: string, jobId: string): Promise<MemoryWritebackView> {
+    this.require('admin', workspaceId)
+    const run = await this.readableRun(workspaceId, agentId, runId)
+    const job = this.writeback.get(jobId)
+    if (job === null || job.run.id !== run.id) throw new RegistryError('not-found', 'Memory writeback not found')
+    return this.writeback.retry(jobId)
   }
 
   /** Import installed resource adapters for an authorized workspace administrator. */
@@ -775,20 +1200,23 @@ export default class AgentBuilder extends TypertRemoteService {
   private resolveDraft(input: RegistryAgentInput, previous?: AgentResources): RegistryAgentInput {
     const refs = input.resources ?? this.resources.legacyRefs(input.model, input.toolIds)
     if (refs === undefined) {
-      if (this.governance !== undefined) throw new GovernanceError(403, 'Bind published Workspace resources')
+      if (this.namespaced) throw new GovernanceError(403, 'Bind published Workspace resources')
       return input
     }
     const manifest = this.resources.resolve(refs, true)
-    const prior = previous === undefined ? [] : [previous.model, ...previous.tools, ...previous.skills]
-    for (const ref of [refs.model, ...refs.tools, ...refs.skills]) {
+    if (manifest.tools.length + ((manifest.memoryStores?.length ?? 0) > 0 ? 2 : 0) > (this.config.maxToolsPerAgent ?? 32)) {
+      throw new RegistryError('conflict', 'Agent exceeds the configured tool limit')
+    }
+    const prior = previous === undefined ? [] : [previous.model, ...previous.tools, ...previous.skills, ...(previous.memoryStores ?? [])]
+    for (const ref of [refs.model, ...refs.tools, ...refs.skills, ...(refs.memoryStores ?? [])]) {
       if (!prior.some(old => old.resourceId === ref.resourceId && old.versionId === ref.versionId)
         && this.resources.get(ref.resourceId).status !== 'active') throw new RegistryError('conflict',
         'New references require an active resource')
     }
     if (manifest.model.spec.kind !== 'model') throw new RegistryError('conflict', 'Model resource required')
     return { ...input, resources: refs, model: { provider: manifest.model.spec.provider, model: manifest.model.spec.model },
-      toolIds: manifest.tools.map((tool) => { if (tool.spec.kind !== 'tool') throw new RegistryError('conflict',
-        'Tool resource required'); return tool.spec.operation }) }
+      toolIds: [...manifest.tools.map(toolOperation), ...((manifest.memoryStores?.length ?? 0) > 0 ? ['platform_memory_get',
+        'platform_memory_put'] : [])] }
   }
 
   private assertVersionResources(version: AgentVersion): void {
@@ -799,7 +1227,7 @@ export default class AgentBuilder extends TypertRemoteService {
       if (refs !== undefined) manifest = resources.resolve(refs, true)
     }
     if (manifest !== undefined) resources.assertAvailable(manifest)
-    else if (this.governance !== undefined) throw new GovernanceError(403, 'Version has no Workspace resource bindings')
+    else if (this.namespaced) throw new GovernanceError(403, 'Version has no Workspace resource bindings')
   }
 
   private async registryCall<T>(action: () => T | Promise<T>): Promise<T> {

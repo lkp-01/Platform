@@ -253,6 +253,8 @@ describe('persistent platform Run lifecycle', () => {
       const snapshot = await f.units[0]!.loadAll()
       return (snapshot.tables.runs?.[run.id] as { status?: string } | undefined)?.status
     }).toBe('SUCCEEDED')
+    // Finish the background Trace projection before observing only the following index reads.
+    await f.builder.runTraceGet('shared', f.resource.id, run.id)
     const observe = vi.spyOn(f.ctx.sessionQuery, 'observeSession')
     await expect.poll(async () => (await f.get(run.id)).status).toBe('SUCCEEDED')
     const completed = await f.get(run.id)

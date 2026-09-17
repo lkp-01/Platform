@@ -126,3 +126,23 @@ describe('shared resource lifecycle', () => {
     expect(snapshotHash(versions.get('shared', a.id, va.id).snapshot)).toBe(oldHash)
   })
 })
+
+it('rejects cross-workspace MCP dependencies and rechecks pinned transitive references at execution', async () => {
+  const { resources: a, publish } = await fixture()
+  const b = a.forWorkspace('B')
+  const foreign = await b.create({ name: 'redis', description: '', ownerTeamId: 'B', spec: { kind: 'mcp-server', url: 'http://localhost:9900/mcp' } }, randomUUID())
+  const foreignVersion = await b.publish(foreign.id, foreign.revision, randomUUID())
+  const foreignRef = { resourceId: foreign.id, versionId: foreignVersion.id }
+  expect(() => a.create({ name: 'read', description: '', ownerTeamId: 'A', spec: { kind: 'tool', operation: 'read', server: foreignRef } }, randomUUID())).toThrow('not found')
+  const credential = await publish('credential', { kind: 'credential', alias: 'redis' })
+  const server = await publish('redis', { kind: 'mcp-server', url: 'http://localhost:9901/mcp', credential })
+  const tool = await publish('read', { kind: 'tool', operation: 'read', server })
+  const memory = await publish('memory', { kind: 'memory-store', adapter: 'local' })
+  const model = await publish('model', { kind: 'model', provider: 'demo', model: 'one' })
+  const manifest = a.resolve({ model, tools: [tool], skills: [], memoryStores: [memory] })
+  a.assertAvailable(manifest)
+  const row = a.get(credential.resourceId)
+  await a.setStatus(row.id, row.revision, 'disabled')
+  expect(() => { a.assertAvailable(manifest) }).toThrow('disabled')
+  expect(() => b.binding(tool, 'tool', true)).toThrow('not found')
+})

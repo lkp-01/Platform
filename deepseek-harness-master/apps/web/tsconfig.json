@@ -27,6 +27,8 @@
     "tests/agent-version.e2e.ts",
     "tests/shared-resources.e2e.ts",
     "tests/workspace-governance.e2e.ts",
+    "tests/platform-workspace.e2e.ts",
+    "tests/platform-mcp.e2e.ts",
     "tests/agent-run.e2e.ts",
     "tests/agent-observability.e2e.ts",
     "tests/business-agents.e2e.ts",

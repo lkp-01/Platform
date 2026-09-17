@@ -39,7 +39,7 @@ export interface AcpConfig {
 
 ## `@deepseek-ai/dsh-agent-builder`
 
-需要：`agentPresets` · `sessionController` · `llm` · `agentDefaultModel` · `storageDomain` · `agents` · `sessions` · `sessionQuery` · `tools` · `sessionPersistence`
+需要： `agentPresets` · `sessionController` · `llm` · `agentDefaultModel` · `storageDomain` · `agents` · `sessions` · `sessionQuery` · `tools` · `sessionPersistence`
 
 ```ts config-catalog
 /** Host-owned configuration directory. */
@@ -50,6 +50,16 @@ interface Config {
   observabilityRefreshMs?: number
   /** Operator-owned JSON file with user credential hashes and bootstrap workspaces. */
   governanceFile?: string
+  /** Enable the local namespace Demo without user authentication; mutually exclusive with governanceFile. */
+  workspaceDemo?: boolean
+  /** Host-provisioned workspace/alias mappings to existing credential references. */
+  credentialBindings?: CredentialBindings
+  /** Deadline for one MCP connection and tool operation. */
+  mcpTimeoutMs?: number
+  /** Workspace-owned approved stdio launch profiles. */
+  mcpLaunchProfiles?: McpLaunchProfiles
+  /** Maximum resolved tools per managed Agent, including memory tools. */
+  maxToolsPerAgent?: number
   /** Durable execution budgets and explicit adapter replay declarations. */
   runtime?: Partial<RuntimePolicy>
   /** Maximum Unicode code points retained in each Trace preview. */
@@ -66,11 +76,31 @@ interface Config {
   ownerTeamName?: string
 }
 
+/** Operator-owned workspace-to-alias mapping. */
+export type CredentialBindings = Record<string, Record<string, string>>
+
+/** Host launch profiles keyed first by workspace, then profile name. */
+export type McpLaunchProfiles = Record<string, Record<string, McpLaunchProfile>>
+
 /** Fully resolved policy used by the scheduler and captured on admission. */
 export type RuntimePolicy = z.infer<typeof runtimePolicySchema>
+
+/** Host-approved stdio launch configuration; secret environment names never come from Agent input. */
+export type McpLaunchProfile = {
+  /** Executable approved by the Host operator. */
+  command: string
+  /** Fixed command arguments; never supplied by the Agent. */
+  args: string[]
+  /** Working directory for the isolated child process. */
+  cwd: string
+  /** Environment variable receiving the resolved credential when present. */
+  credentialEnv?: string
+}
 ```
 
-来源：[`packages/business/agent-builder/src/index.ts:41`](../packages/business/agent-builder/src/index.ts)
+依赖： `z` (`zod`)
+
+来源： [`packages/business/agent-builder/src/index.ts:52`](../packages/business/agent-builder/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
@@ -1550,7 +1580,7 @@ export interface LspLocalServerConfig {
 
 ## `@deepseek-ai/dsh-mcp-client`
 
-需要：`fs` · `lsp` · `subprocess`
+需要： `tools`
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -1558,6 +1588,8 @@ export type Config = StdioConfig | StreamableHttpConfig
 
 /** Config for connecting to an MCP server via a spawned child process over stdio. */
 export interface StdioConfig {
+  /** Pinned tools to register; an explicit empty list registers no tools. */
+  selection?: McpSelection[]
   /** Selects child-process stdio transport. */
   transport: 'stdio'
   /**
@@ -1584,6 +1616,8 @@ export interface StdioConfig {
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
 export interface StreamableHttpConfig {
+  /** Pinned tools to register; an explicit empty list registers no tools. */
+  selection?: McpSelection[]
   /** Selects Streamable HTTP transport. */
   transport: 'streamable-http'
   /**
@@ -1604,6 +1638,12 @@ export interface StreamableHttpConfig {
   reconnect?: ReconnectConfig
 }
 
+/** Exact authorized description with an optional stable model-facing alias. */
+export type McpSelection = McpDescriptor & {
+  /** Stable model-visible name; omitted names use the normal server namespace. */
+  publicName?: string | undefined
+}
+
 /** Automatic reconnect policy for one MCP server connection. */
 export interface ReconnectConfig {
   /** Reconnect automatically after a lost connection (default true). */
@@ -1615,9 +1655,25 @@ export interface ReconnectConfig {
   /** Consecutive failed attempts per outage before giving up for good (default 10). */
   maxAttempts?: number
 }
+
+/** Raw MCP tool description, excluding transport credentials. */
+export interface McpDescriptor {
+  /** Exact raw operation name returned by tools/list. */
+  name: string
+  /** Model-visible description pinned at publication. */
+  description: string
+  /** Complete JSON input schema used for argument validation. */
+  inputSchema: Record<string, JsonValue>
+  /** Optional JSON result schema advertised by the server. */
+  outputSchema?: Record<string, JsonValue> | undefined
+  /** Whether the server requires MCP task execution rather than a direct call. */
+  taskRequired?: boolean | undefined
+}
 ```
 
-来源：[`packages/mcp/mcp-client/src/index.ts:98`](../packages/mcp/mcp-client/src/index.ts)
+依赖： [`JsonValue`](../packages/util/values/src/index.ts)
+
+来源： [`packages/mcp/mcp-client/src/index.ts:106`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 

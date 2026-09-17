@@ -434,6 +434,48 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 Creates immutable business definitions without accepting composition code.
 
 ```ts cordis-catalog
+/** List the local Demo namespaces; governed callers retain member filtering.
+ * @returns Demo workspace views.
+ */
+demoWorkspaces(): (PlatformWorkspace & { role: 'admin' })[]
+
+/** Create a local Demo namespace without changing governed permissions.
+ * @param name - display name.
+ * @param token - retry UUID.
+ * @returns persisted namespace.
+ */
+async demoCreateWorkspace(name: string, token: string): Promise<PlatformWorkspace>
+
+/** Read a local data resource in the request namespace.
+ * @param ref - immutable resource version.
+ * @param kind - expected resource kind.
+ * @param key - local item key.
+ * @returns stored text or null.
+ */
+readResourceData(ref: import('./resource-types.ts').ResourceRef, kind: 'memory-store' | 'eval-dataset', key: string): string | null
+
+/** Write a local data resource without accepting a storage path.
+ * @param ref - immutable resource version.
+ * @param kind - expected resource kind.
+ * @param key - local item key.
+ * @param value - bounded text.
+ */
+async putResourceData(ref: import('./resource-types.ts').ResourceRef, kind: 'memory-store' | 'eval-dataset', key: string, value: string): Promise<void>
+
+/** Discover a published workspace MCP server without changing any binding.
+ * @param ref - exact server version.
+ * @returns validated public tool descriptions.
+ */
+@Remote('mcpDiscover') async mcpDiscover(ref: ResourceRef): Promise<McpDescriptor[]>
+
+/** Import one discovered operation as a draft without publishing it.
+ * @param ref - exact server version.
+ * @param operation - raw remote operation to discover again.
+ * @param token - retry UUID.
+ * @returns existing or newly created draft.
+ */
+@Remote('mcpImport') async mcpImport(ref: ResourceRef, operation: string, token: string): Promise<SharedResource>
+
 /**
  * Read templates and saved Agents together with currently configured models.
  * @returns current authoring choices without creating a Session.
@@ -556,9 +598,10 @@ Creates immutable business definitions without accepting composition code.
  * @param id - Agent identity.
  * @param prompt - task input.
  * @param token - stable admission UUID.
+ * @param conversationId - optional owned business conversation for session-scoped Memory.
  * @returns task attribution and current status.
  */
-@Remote('runStart') async runStart(workspaceId: string, id: string, prompt: string, token: string): Promise<PlatformRun>
+@Remote('runStart') async runStart(workspaceId: string, id: string, prompt: string, token: string, conversationId?: string): Promise<PlatformRun>
 
 /** List real platform tasks, independently of legacy Sessions.
  * @param workspaceId - organization scope.
@@ -679,6 +722,72 @@ Creates immutable business definitions without accepting composition code.
  * @returns direct uses, including deployed and historical Agent versions.
  */
 @Remote('resourceUsage') async resourceUsage(id: string): Promise<ResourceUsage[]>
+
+/** List visible Memory Items in one server-derived scope.
+ * @param storeId - MemoryStore identity in the current Workspace.
+ * @param scope - requested Memory scope.
+ * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+ * @param limit - bounded item count.
+ * @returns active, non-expired items with their attributable sources.
+ */
+@Remote('memoryListItems') memoryListItems(storeId: string, scope: 'session' | 'user' | 'agent', subjectId: string | undefined, limit?: number): MemoryItemView[]
+
+/** Read one Item only after resolving the caller's Memory namespace.
+ * @param storeId - MemoryStore identity in the current Workspace.
+ * @param scope - requested Memory scope.
+ * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+ * @param itemId - opaque Item identity.
+ * @returns the visible Item, or a not-found error for foreign IDs.
+ */
+@Remote('memoryGetItem') memoryGetItem(storeId: string, scope: 'session' | 'user' | 'agent', subjectId: string | undefined, itemId: string): MemoryItemView
+
+/** Create an attributable manual Item within a server-derived Memory scope.
+ * @param storeId - MemoryStore identity in the current Workspace.
+ * @param scope - requested Memory scope.
+ * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+ * @param content - operator-maintained reference content.
+ * @param reason - audit reason for the manual change.
+ * @param operationKey - stable caller retry key.
+ * @returns Item, with an embedding when the Host configured an embedding service.
+ */
+@Remote('memoryCreateItem') async memoryCreateItem(storeId: string, scope: 'session' | 'user' | 'agent', subjectId: string | undefined, content: string, reason: string, operationKey: string): Promise<MemoryItemView>
+
+/** Tombstone a Memory Item so it immediately leaves retrieval and cannot be revived by a retry.
+ * @param storeId - MemoryStore identity in the current Workspace.
+ * @param scope - requested Memory scope.
+ * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+ * @param itemId - opaque Item identity.
+ * @param revision - optimistic Item revision.
+ * @param reason - operator deletion reason.
+ * @returns durable tombstone metadata.
+ */
+@Remote('memoryDeleteItem') memoryDeleteItem(storeId: string, scope: 'session' | 'user' | 'agent', subjectId: string | undefined, itemId: string, revision: number, reason: string): Promise<MemoryItemView>
+
+/** Import one explicitly selected legacy KV value into a selected scoped namespace.
+ * @param storeId - MemoryStore identity in the current Workspace.
+ * @param legacyKey - legacy local-adapter key chosen by an operator.
+ * @param scope - destination Memory scope.
+ * @param subjectId - Agent ID or owned business conversation for non-user scopes.
+ * @returns imported Item; existing retries return the same Item.
+ */
+@Remote('memoryMigrateLegacyItem') async memoryMigrateLegacyItem(storeId: string, legacyKey: string, scope: 'session' | 'user' | 'agent', subjectId?: string): Promise<MemoryItemView>
+
+/** Read post-Run Memory writeback status without exposing another task's work.
+ * @param workspaceId - organization scope.
+ * @param agentId - owning Agent identity.
+ * @param runId - completed task identity.
+ * @returns every Store writeback job created for the Run.
+ */
+@Remote('memoryGetWriteback') async memoryGetWriteback(workspaceId: string, agentId: string, runId: string): Promise<MemoryWritebackView[]>
+
+/** Retry a failed Memory writeback without rerunning the completed Agent task.
+ * @param workspaceId - organization scope.
+ * @param agentId - owning Agent identity.
+ * @param runId - completed task identity.
+ * @param jobId - durable Memory writeback job identity.
+ * @returns retry-ready job state.
+ */
+@Remote('memoryRetryWriteback') async memoryRetryWriteback(workspaceId: string, agentId: string, runId: string, jobId: string): Promise<MemoryWritebackView>
 
 /** Import installed resource adapters for an authorized workspace administrator. */
 async seedWorkspaceResources(): Promise<void>

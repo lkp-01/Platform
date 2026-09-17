@@ -44,19 +44,50 @@ export class SharedResources {
   validateOwnership(validate: (workspaceId: string) => void): void {
     for (const [, row] of this.domain.table('resources').entries()) {
       validate(row.workspaceId)
-      for (const version of row.versions) if (version.resourceId !== row.id) throw new Error('Resource version ownership mismatch')
+      const scoped = this.forWorkspace(row.workspaceId)
+      scoped.validatePersistedDependencies(row.spec)
+      for (const version of row.versions) {
+        if (version.resourceId !== row.id) throw new Error('Resource version ownership mismatch')
+        scoped.validatePersistedDependencies(version.spec)
+      }
     }
   }
 
+  private validatePersistedDependencies(spec: ResourceInput['spec']): void {
+    const ref = spec.kind === 'tool' ? spec.server : spec.kind === 'mcp-server' ? spec.credential : undefined
+    if (ref === undefined) return
+    const parent = this.row(ref.resourceId)
+    const version = parent.versions.find(row => row.id === ref.versionId && row.resourceId === parent.id)
+    const kind = spec.kind === 'tool' ? 'mcp-server' : 'credential'
+    if (version === undefined || version.spec.kind !== kind || resourceHash(version.spec) !== version.specHash) throw new Error('Invalid resource dependency')
+    this.validatePersistedDependencies(version.spec)
+  }
+  /** Follow pinned dependencies when reporting Agent usage, including disabled history.
+   * @param ref - Agent's direct resource reference.
+   * @param resourceId - resource whose consumers are requested.
+   * @returns whether the reference reaches the resource.
+   */
+  dependsOn(ref: ResourceRef, resourceId: string): boolean {
+    const row = this.row(ref.resourceId)
+    if (row.id === resourceId) return true
+    const version = row.versions.find(value => value.id === ref.versionId && value.resourceId === row.id)
+    if (version === undefined) throw new RegistryError('conflict', 'Resource version missing')
+    const spec = version.spec
+    this.validatePersistedDependencies(spec)
+    const dependency = spec.kind === 'tool' ? spec.server : spec.kind === 'mcp-server' ? spec.credential : undefined
+    return dependency !== undefined && this.dependsOn(dependency, resourceId)
+  }
   /** Validate durable bindings without rejecting disabled historical resources.
    * @param input - exact published references owned by this workspace.
    */
   validateReferences(input: AgentResources): void {
-    for (const ref of [input.model, ...input.tools, ...input.skills]) {
+    for (const ref of [input.model, ...input.tools, ...input.skills, ...(input.memoryStores ?? []), ...(input.memoryBindings ?? [])]) {
       const row = this.row(ref.resourceId)
-      if (!row.versions.some(version => version.id === ref.versionId && version.resourceId === row.id)) {
+      const version = row.versions.find(version => version.id === ref.versionId && version.resourceId === row.id)
+      if (version === undefined) {
         throw new Error('Resource binding references missing version')
       }
+      this.validatePersistedDependencies(version.spec)
     }
   }
 
@@ -76,7 +107,8 @@ export class SharedResources {
   /** List resources, including disabled records for management and history.
    * @returns detached resource records.
    */
-  list(): SharedResource[] { return [...this.domain.table('resources').entries()].filter(([, row]) => row.workspaceId === this.workspaceId).map(([, row]) => publicRow(row)).sort((a,
+  list(): SharedResource[] { return [...this.domain.table('resources').entries()].filter(([,
+    row]) => row.workspaceId === this.workspaceId).map(([, row]) => publicRow(row)).sort((a,
     b) => a.name.localeCompare(b.name)) }
   /** Read a resource and all published versions.
    * @param id - stable resource identity.
@@ -86,9 +118,10 @@ export class SharedResources {
   private validate(input: ResourceInput): ResourceInput {
     const value = resourceInputSchema.parse(input)
     const selected = value.spec
-    if (selected.kind === 'tool' && !TOOL_CHOICES.some(tool => tool.id === selected.operation)) {
+    if (selected.kind === 'tool' && selected.server === undefined && !TOOL_CHOICES.some(tool => tool.id === selected.operation)) {
       throw new RegistryError('conflict', 'Choose an installed tool operation')
     }
+    this.validateDependencies(selected, false)
     return value
   }
   private async insert(input: ResourceInput, key: string): Promise<SharedResource> {
@@ -116,7 +149,8 @@ export class SharedResources {
    * @returns committed draft.
    */
   create(input: ResourceInput,
-    token: string): Promise<SharedResource> { tokenSchema.parse(token); return this.insert(this.validate(input), platformActor() === 'shared-host' ? token : `${platformActor()}:${token}`) }
+    token: string): Promise<SharedResource> { tokenSchema.parse(token); return this.insert(this.validate(input),
+    platformActor() === 'shared-host' ? token : `${platformActor()}:${token}`) }
   /** Replace metadata and the next-version draft; published versions stay unchanged.
    * @param id - resource identity.
    * @param revision - loaded edit revision.
@@ -155,12 +189,15 @@ export class SharedResources {
       }
       if (row.revision !== revision) throw new RegistryError('conflict', 'Resource changed; reload before publishing')
       if (row.status !== 'active') throw new RegistryError('conflict', 'Activate the resource before publishing')
+      this.validateDependencies(row.spec, false)
       const version: ResourceVersion = { id: brandString<SharedResourceVersionId>(`rv-${digest(`${id}:${platformActor()}:${token}`)}`),
         resourceId: row.id, versionNumber: row.versions.length + 1, spec: row.spec, specHash: resourceHash(row.spec),
         createdAt: new Date().toISOString() }
-      await this.domain.table('resources').put(id, { ...row, revision: row.revision + 1, updatedAt: version.createdAt, updatedBy: platformActor(),
-        versions: [...row.versions, version], receipts: { ...row.receipts, [platformActor() === 'shared-host' ? token : `${platformActor()}:${token}`]: { fingerprint: String(revision),
-          versionId: version.id } } })
+      await this.domain.table('resources').put(id, { ...row, revision: row.revision + 1, updatedAt: version.createdAt,
+        updatedBy: platformActor(),
+        versions: [...row.versions, version], receipts: { ...row.receipts,
+          [platformActor() === 'shared-host' ? token : `${platformActor()}:${token}`]: { fingerprint: String(revision),
+            versionId: version.id } } })
       return structuredClone(version)
     })
   }
@@ -181,15 +218,26 @@ export class SharedResources {
       return publicRow(next)
     })
   }
-  private binding(ref: ResourceRef, kind: ResourceInput['spec']['kind'], existing: boolean): ResourceBinding {
+  /** Resolve one published dependency and its complete same-workspace reference chain.
+   * @param ref - immutable resource reference.
+   * @param kind - expected resource kind.
+   * @param existing - allow existing deprecated bindings.
+   * @returns verified dependency contents.
+   */
+  binding(ref: ResourceRef, kind: ResourceInput['spec']['kind'], existing: boolean): ResourceBinding {
     const row = this.row(ref.resourceId)
     if (row.status === 'disabled' || row.status === 'archived' || (!existing && row.status === 'deprecated')) {
       throw new RegistryError('conflict', `Resource ${row.name} is ${row.status}`)
     }
     const version = row.versions.find(value => value.id === ref.versionId)
-    if (version === undefined || version.spec.kind !== kind) throw new RegistryError('conflict', 'Resource version missing or wrong kind')
+    if (version === undefined || version.resourceId !== row.id || version.spec.kind !== kind) throw new RegistryError('conflict', 'Resource version missing or wrong kind')
     if (version.specHash !== resourceHash(version.spec)) throw new RegistryError('conflict', 'Resource integrity check failed')
+    this.validateDependencies(version.spec, existing)
     return { ...structuredClone(version), name: row.name }
+  }
+  private validateDependencies(spec: ResourceInput['spec'], existing: boolean): void {
+    if (spec.kind === 'tool' && spec.server !== undefined) this.binding(spec.server, 'mcp-server', existing)
+    if (spec.kind === 'mcp-server' && spec.credential !== undefined) this.binding(spec.credential, 'credential', existing)
   }
   /** Resolve exact versions; never substitutes a newer resource.
    * @param input - selected resource versions.
@@ -199,8 +247,13 @@ export class SharedResources {
   resolve(input: AgentResources, existing = false): ResourceManifest {
     const refs = agentResourcesSchema.parse(input)
     const result = { model: this.binding(refs.model, 'model', existing), tools: refs.tools.map(ref => this.binding(ref, 'tool', existing)),
-      skills: refs.skills.map(ref => this.binding(ref, 'skill', existing)) }
-    const operations = result.tools.map(binding => binding.spec.kind === 'tool' ? binding.spec.operation : '')
+      skills: refs.skills.map(ref => this.binding(ref, 'skill', existing)),
+      ...(refs.memoryStores === undefined ? {} : { memoryStores: refs.memoryStores.map(ref => this.binding(ref, 'memory-store', existing)) }),
+      ...(refs.memoryBindings === undefined ? {} : { memoryBindings: refs.memoryBindings.map(ref => ({
+        ...this.binding(ref, 'memory-store', existing), readScopes: [...ref.readScopes], writeScopes: [...ref.writeScopes],
+        retrieval: { ...ref.retrieval }, extraction: { ...ref.extraction },
+      })) }) }
+    const operations = result.tools.map(binding => toolOperation(binding))
     if (new Set(operations).size !== operations.length || new Set(refs.skills.map(ref => ref.resourceId)).size !== refs.skills.length) {
       throw new RegistryError('conflict', 'Duplicate tool operation or Skill')
     }
@@ -212,9 +265,15 @@ export class SharedResources {
   assertAvailable(manifest: ResourceManifest): void {
     const current = this.resolve({ model: { resourceId: manifest.model.resourceId, versionId: manifest.model.id },
       tools: manifest.tools.map(row => ({ resourceId: row.resourceId, versionId: row.id })),
-      skills: manifest.skills.map(row => ({ resourceId: row.resourceId, versionId: row.id })) }, true)
-    for (const [index, binding] of [current.model, ...current.tools, ...current.skills].entries()) {
-      const captured = [manifest.model, ...manifest.tools, ...manifest.skills][index]
+      skills: manifest.skills.map(row => ({ resourceId: row.resourceId, versionId: row.id })),
+      ...(manifest.memoryStores === undefined ? {} : {
+        memoryStores: manifest.memoryStores.map(row => ({ resourceId: row.resourceId, versionId: row.id })),
+      }), ...(manifest.memoryBindings === undefined ? {} : { memoryBindings: manifest.memoryBindings.map(row => ({
+        resourceId: row.resourceId, versionId: row.id, readScopes: row.readScopes, writeScopes: row.writeScopes,
+        retrieval: row.retrieval, extraction: row.extraction,
+      })) }) }, true)
+    for (const [index, binding] of [current.model, ...current.tools, ...current.skills, ...(current.memoryStores ?? []), ...(current.memoryBindings ?? [])].entries()) {
+      const captured = [manifest.model, ...manifest.tools, ...manifest.skills, ...(manifest.memoryStores ?? []), ...(manifest.memoryBindings ?? [])][index]
       if (captured === undefined) throw new RegistryError('conflict', 'Resource manifest incomplete')
       if (captured.specHash !== binding.specHash || resourceHash(captured.spec) !== captured.specHash) throw new RegistryError('conflict',
         'Resource manifest integrity check failed')
@@ -262,4 +321,14 @@ export class SharedResources {
     if (selected === undefined || refs.some(ref => ref === undefined)) return undefined
     return { model: selected, tools: refs.filter((ref): ref is ResourceRef => ref !== undefined), skills: [] }
   }
+}
+
+/** Produce a collision-free managed operation from the bound server identity.
+ * @param binding - published Tool configuration.
+ * @returns Harness tool name.
+ */
+export function toolOperation(binding: ResourceBinding): string {
+  if (binding.spec.kind !== 'tool') throw new RegistryError('conflict', 'Tool resource required')
+  return binding.spec.server === undefined ? binding.spec.operation
+    : `mcp__platform_${digest(`${binding.spec.server.resourceId}:${binding.spec.operation}`)}`
 }
