@@ -28,7 +28,7 @@ afterEach(async () => {
 })
 
 /** Write a cordis.yml with one webserver row, then boot it through the real Loader. */
-async function loadComposition(port = 0, gzip = false): Promise<Context> {
+async function loadComposition(port = 0, gzip = false, requirePolicy = false): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-webserver-loader-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -36,6 +36,7 @@ async function loadComposition(port = 0, gzip = false): Promise<Context> {
     '  config:',
     "    host: '127.0.0.1'",
     `    port: ${String(port)}`,
+    `    requireAccessPolicy: ${String(requirePolicy)}`,
     ...(gzip
       ? [
         '    compression: gzip',
@@ -99,6 +100,7 @@ async function upgrade(port: number, path: string): Promise<ReturnType<typeof co
 describe('real Loader composition', () => {
   it('applies gzip only to eligible socket-backed HTTP responses', { timeout: 60_000 }, async () => {
     expect(HttpServer.Config({ host: '127.0.0.1', port: 0 })).toEqual({
+      requireAccessPolicy: false,
       host: '127.0.0.1',
       port: 0,
       compression: 'none',
@@ -378,4 +380,22 @@ describe('real Loader composition', () => {
       root = firstRoot
     }
   })
+})
+
+it('refuses routes and upgrades until a required policy is mounted and after disposal', async () => {
+  const ctx = await loadComposition(0, false, true)
+  const server = ctx.webServer
+  server.register({ kind: 'exact', path: '/allowed', handler: (_req, res) => { res.end('visible') } })
+  expect((await request(server.port, '/allowed')).status).toBe(503)
+  const dispose = server.registerAccessPolicy((req, isUpgrade) => isUpgrade || req.url !== '/allowed' ? 403 : undefined)
+  expect((await request(server.port, '/allowed')).body).toBe('visible')
+  expect((await request(server.port, '/private')).status).toBe(403)
+  const socket = connect(server.port, '127.0.0.1')
+  await once(socket, 'connect')
+  const response = once(socket, 'data')
+  socket.write('GET /allowed HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n')
+  expect(String((await response)[0])).toContain('403')
+  socket.destroy()
+  dispose()
+  expect((await request(server.port, '/allowed')).status).toBe(503)
 })

@@ -1382,12 +1382,13 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'useSessionPendingInteraction: UseSessionPendingInteraction',
       'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
     ],
-    keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: agents, conversation',
+    keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: agents, conversation, resources',
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'root\' (client-ui-layout), so it exists while that entry is mounted',
     occupants: [
       'client-ui-agent-preset AgentRegistryPanel key \'agents\'',
+      'client-ui-agent-preset SharedResourcesPanel key \'resources\'',
       'client-ui-conversation ConversationPanel key \'conversation\'',
     ],
     replaceRisk: 'shadows-shipped-ui',
@@ -2225,6 +2226,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'sidebar\' (client-ui-sidebar), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-agent-preset RegistryIcon id \'resources\'',
       'client-ui-agent-preset RegistryIcon id \'agents\'',
     ],
     replaceRisk: 'none',

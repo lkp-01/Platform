@@ -22,6 +22,7 @@ export class PlatformTraces {
   private readonly faults = new Set<string>()
   private readonly starts = new Map<string, TraceModelStart[]>()
   private readonly routes = new Map<string, { provider: string; model: string }>()
+  private readonly lifecycle = new Map<string, string>()
   private readonly unlisten: (() => void)[] = []
   private closing = false
   private constructor(
@@ -64,6 +65,10 @@ export class PlatformTraces {
     store.unlisten.push(ctx.on('domain/changed', (change) => {
       if (change.domain !== 'platform_agent_runs' || change.operation !== 'put') return
       const row = change.value as PlatformRun
+      // Checkpoint heartbeats do not change execution facts or the Trace summary.
+      const fingerprint = JSON.stringify([row.status, row.events.length, row.error, row.result, row.cancelRequestedAt])
+      if (store.lifecycle.get(row.id) === fingerprint) return
+      store.lifecycle.set(row.id, fingerprint)
       store.schedule(row)
     }))
     // Terminal traces may have lost their last projection write before shutdown.
@@ -112,7 +117,7 @@ export class PlatformTraces {
     for (const start of starts) {
       if (this.domain.table('starts').get(start.id) === undefined) await this.domain.table('starts').put(start.id, start)
     }
-    const { trace, items } = projectTrace(run, events, starts, this.previewLimit)
+    const { trace, items } = projectTrace(run, events, starts, this.previewLimit, this.runs.toolHistory(run))
     if (events.length === 0 && run.startedAt !== null) trace.state = 'partial'
     trace.revision = createHash('sha256').update(JSON.stringify({ trace, items })).digest('hex').slice(0, 24)
     const previous = this.domain.table('summaries').get(run.id)
@@ -136,6 +141,23 @@ export class PlatformTraces {
     const summary = this.domain.table('summaries').get(run.id)
     if (summary === undefined) return { ...projectTrace(run, [], [], this.previewLimit).trace, state: 'unavailable' }
     return { ...summary, ...(this.faults.has(run.id) ? { state: 'partial' as const } : {}) }
+  }
+
+  /** Capture one published revision for an internal derived-data consumer.
+   * @param run - Runtime-owned attribution.
+   * @param rebuild - startup reconciliation of historical projection schemas.
+   * @returns one consistent summary and its complete immutable event pages.
+   */
+  async snapshot(run: PlatformRun, rebuild = false): Promise<{ trace: RunTrace; items: import('./trace-types.ts').TraceEvent[] }> {
+    if (rebuild) this.schedule(run)
+    const trace = await this.get(run)
+    const items: import('./trace-types.ts').TraceEvent[] = []
+    for (let offset = 0; offset < trace.eventCount; offset += PAGE_SIZE) {
+      const page = this.domain.table('pages').get(`${run.id}:${trace.revision}:${offset / PAGE_SIZE}`)
+      if (page === undefined) throw new RegistryError('conflict', 'Trace publication changed')
+      items.push(...page)
+    }
+    return { trace, items }
   }
 
   /** Read a bounded page from one published revision, rejecting stale cursors.

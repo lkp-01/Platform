@@ -83,6 +83,8 @@ kind: "package-reference"
 
 -----
 
+导出的 `SessionWriteLease` 也允许 Platform Runtime 使用同一内核机制保护独立的所有权目录。其诊断身份采用 Session ID；同一机器上的所有写入者必须共用该目录，Windows 上还必须处于同一操作系统登录会话。只有所有受保护的执行和写入停止后才能释放锁。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

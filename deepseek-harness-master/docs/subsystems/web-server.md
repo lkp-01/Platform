@@ -31,6 +31,8 @@ Match order is fixed: exact table first, then longest matching prefix, then the 
 ```ts type-equiv
 /** Web server listen and response-compression config. */
 interface Config {
+  /** Refuse all traffic until a deployment access policy is mounted. */
+  requireAccessPolicy?: boolean
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
@@ -67,6 +69,12 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 The browser HTTP carrier service. Activation listens immediately. Route registration order does not affect requests because configured named routes must be distinct, and the fallback handler answers anything not yet claimed during startup with 404 until its owner registers. A listen failure rejects initialization, and the boot process reports the failed fiber.
 
 ```ts cordis-catalog
+/** Install one deployment policy before all route and WebSocket dispatch.
+ * @param policy - returns an HTTP denial status or undefined to allow.
+ * @returns disposer; required-policy listeners return to refusing traffic.
+ */
+registerAccessPolicy(policy: (request: IncomingMessage, upgrade: boolean) => number | undefined): () => void
+
 /**
  * Register a named route. Duplicate (kind, path) throws — route patterns are
  * a composition-level contract, so a collision is a misconfiguration.

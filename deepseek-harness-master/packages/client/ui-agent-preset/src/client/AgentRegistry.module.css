@@ -62,3 +62,13 @@
 .traceRow summary { cursor: pointer; }
 .traceRow pre { overflow: auto; max-height: 320px; }
 @media (max-width: 560px) { .traceRow { grid-template-columns: 1fr; gap: 4px; } }
+
+.form .resourceChoice { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.form .resourceChoice > label { flex-direction: row; gap: 10px; align-items: start; cursor: pointer; }
+.resourceChoice > small { grid-column: 1 / -1; }
+.form .resourceChoice select { padding: 6px 8px; }
+
+.analysisTable { overflow-x: auto; }
+.analysisTable table { width: 100%; border-collapse: collapse; }
+.analysisTable th, .analysisTable td { padding: 0.6rem; text-align: left; border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
+.analysisTable small { display: block; }

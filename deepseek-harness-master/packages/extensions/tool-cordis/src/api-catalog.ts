@@ -201,6 +201,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'persisted Trace summary and availability.',
       },
       {
+        signature: '@Remote(\'observabilityQuery\') async observabilityQuery(workspaceId: string, query: ObservationQuery): Promise<ObservationReport>',
+        description: 'Analyze an Agent or administrator-authorized workspace using published facts.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'query', description: 'explicit cohort and optional version/resource filters.' }],
+        returns: 'metrics, coverage, trends and comparison.',
+      },
+      {
+        signature: '@Remote(\'observabilityRuns\') async observabilityRuns(workspaceId: string, query: ObservationQuery, cursor?: string, limit?: number): Promise<ObservationRunPage>',
+        description: 'List the same analysis cohort for Trace drill-down.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'query', description: 'exact report filters.' }, { name: 'cursor', description: 'opaque filter-bound cursor.' }, { name: 'limit', description: 'bounded page size.' }],
+        returns: 'links to authorized Run details.',
+      },
+      {
         signature: '@Remote(\'runTraceEvents\') async runTraceEvents(workspaceId: string, id: string, runId: string, cursor?: string, limit?: number): Promise<RunTracePage>',
         description: 'Read source-ordered execution facts with bounded previews.',
         parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'runId', description: 'task identity.' }, { name: 'cursor', description: 'opaque position from a previous page.' }, { name: 'limit', description: 'maximum events, from 1 to 100.' }],
@@ -213,10 +225,57 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'current lifecycle, including pending cancellation intent.',
       },
       {
+        signature: '@Remote(\'runResolve\') async runResolve(workspaceId: string, id: string, runId: string, callId: string, decision: \'completed\' | \'not-executed\', evidence: string, token: string): Promise<PlatformRun>',
+        description: 'Record externally verified evidence for a blocked tool call.',
+        parameters: [{ name: 'workspaceId', description: 'organization workspace.' }, { name: 'id', description: 'owning Agent.' }, { name: 'runId', description: 'blocked Run.' }, { name: 'callId', description: 'original tool invocation identity.' }, { name: 'decision', description: 'externally established outcome.' }, { name: 'evidence', description: 'verification evidence retained in the audit record.' }, { name: 'token', description: 'idempotent request identity.' }],
+        returns: 'Run queued for recovery after the decision is durable.',
+      },
+      {
         signature: '@Remote(\'runForSession\') async runForSession(sessionId: string): Promise<PlatformRun>',
         description: 'Resolve a managed Session for the execution-page cancellation entry.',
         parameters: [{ name: 'sessionId', description: 'existing Session identity.' }],
         returns: 'task after checking its configured organization scope.',
+      },
+      {
+        signature: '@Remote(\'resourceList\') async resourceList(): Promise<SharedResource[]>',
+        description: 'List all managed resources and their published versions.',
+        parameters: [],
+        returns: 'public configuration without credentials.',
+      },
+      {
+        signature: '@Remote(\'resourceCreate\') async resourceCreate(input: ResourceInput, token: string): Promise<SharedResource>',
+        description: 'Register an unpublished resource draft.',
+        parameters: [{ name: 'input', description: 'resource metadata and configuration.' }, { name: 'token', description: 'retry UUID.' }],
+        returns: 'saved draft.',
+      },
+      {
+        signature: '@Remote(\'resourceUpdate\') async resourceUpdate(id: string, revision: number, input: ResourceInput): Promise<SharedResource>',
+        description: 'Edit the next resource version, retaining all published content.',
+        parameters: [{ name: 'id', description: 'resource identity.' }, { name: 'revision', description: 'loaded revision.' }, { name: 'input', description: 'replacement draft.' }],
+        returns: 'updated resource.',
+      },
+      {
+        signature: '@Remote(\'resourcePublish\') async resourcePublish(id: string, revision: number, token: string): Promise<ResourceVersion>',
+        description: 'Publish a resource draft without changing any Agent binding.',
+        parameters: [{ name: 'id', description: 'resource identity.' }, { name: 'revision', description: 'loaded revision.' }, { name: 'token', description: 'retry UUID.' }],
+        returns: 'immutable resource version.',
+      },
+      {
+        signature: '@Remote(\'resourceStatus\') async resourceStatus(id: string, revision: number, status: ResourceStatus): Promise<SharedResource>',
+        description: 'Change resource availability without deleting historical content.',
+        parameters: [{ name: 'id', description: 'resource identity.' }, { name: 'revision', description: 'loaded revision.' }, { name: 'status', description: 'new availability.' }],
+        returns: 'saved resource.',
+      },
+      {
+        signature: '@Remote(\'resourceUsage\') async resourceUsage(id: string): Promise<ResourceUsage[]>',
+        description: 'Derive consumers from Agent drafts and immutable versions.',
+        parameters: [{ name: 'id', description: 'resource identity.' }],
+        returns: 'direct uses, including deployed and historical Agent versions.',
+      },
+      {
+        signature: 'async seedWorkspaceResources(): Promise<void>',
+        description: 'Import installed resource adapters for an authorized workspace administrator.',
+        parameters: [],
       },
     ],
   },
@@ -2967,6 +3026,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'The browser HTTP carrier service. Activation listens immediately. Route registration order does not affect requests because configured named routes must be distinct, and the fallback handler answers anything not yet claimed during startup with 404 until its owner registers. A listen failure rejects initialization, and the boot process reports the failed fiber.',
     methods: [
       {
+        signature: 'registerAccessPolicy(policy: (request: IncomingMessage, upgrade: boolean) => number | undefined): () => void',
+        description: 'Install one deployment policy before all route and WebSocket dispatch.',
+        parameters: [{ name: 'policy', description: 'returns an HTTP denial status or undefined to allow.' }],
+        returns: 'disposer; required-policy listeners return to refusing traffic.',
+      },
+      {
         signature: 'register(route: WebRoute): () => void',
         description: 'Register a named route. Duplicate (kind, path) throws — route patterns are a composition-level contract, so a collision is a misconfiguration.',
         parameters: [{ name: 'route', description: 'kind, path, and the owning handler.' }],
@@ -3831,6 +3896,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AgentResolver = (sessionId: SessionId) => Promise<Agent>;',
   },
   {
+    name: 'AgentResources',
+    declaration: 'export interface AgentResources {\n    model: ResourceRef;\n    tools: ResourceRef[];\n    skills: ResourceRef[];\n}',
+  },
+  {
     name: 'AgentSetup',
     declaration: 'export type AgentSetup = (agentCtx: Context, agent: Agent) => AgentSetupCommit | Promise<AgentSetupCommit | void> | void;',
   },
@@ -3840,7 +3909,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentSnapshot',
-    declaration: 'export interface AgentSnapshot {\n    harnessId: \'deepseek-harness\';\n    prompt: string;\n    model: ModelSelection;\n    toolIds: string[];\n    executionConfig: {\n        rendererVersion: 1;\n        includeRuntimeContext: false;\n        businessDate: string;\n        compaction: {\n            thresholdChars: number;\n            headChars: number;\n            tailChars: number;\n        };\n        modelParameters: {\n            reasoningEffort: string | null;\n            temperature: number | null;\n            maxTokens: number | null;\n            stop: string[] | null;\n        };\n    };\n}',
+    declaration: 'export interface AgentSnapshot {\n    resources?: ResourceManifest | undefined;\n    harnessId: \'deepseek-harness\';\n    prompt: string;\n    model: ModelSelection;\n    toolIds: string[];\n    executionConfig: {\n        rendererVersion: 1 | 2;\n        includeRuntimeContext: false;\n        businessDate: string;\n        compaction: {\n            thresholdChars: number;\n            headChars: number;\n            tailChars: number;\n        };\n        modelParameters: {\n            reasoningEffort: string | null;\n            temperature: number | null;\n            maxTokens: number | null;\n            stop: string[] | null;\n        };\n    };\n}',
   },
   {
     name: 'AgentStatus',
@@ -3852,7 +3921,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentVersion',
-    declaration: 'export interface AgentVersion {\n    id: AgentVersionId;\n    agentId: RegistryAgentId;\n    platformWorkspaceId: string;\n    versionNumber: number;\n    sourceRevision: number;\n    schemaVersion: 1;\n    snapshot: AgentSnapshot;\n    configHash: string;\n    changeNote: string;\n    createdBy: string;\n    createdAt: string;\n}',
+    declaration: 'export interface AgentVersion {\n    id: AgentVersionId;\n    agentId: RegistryAgentId;\n    platformWorkspaceId: string;\n    versionNumber: number;\n    sourceRevision: number;\n    schemaVersion: 1 | 2;\n    snapshot: AgentSnapshot;\n    configHash: string;\n    changeNote: string;\n    createdBy: string;\n    createdAt: string;\n}',
   },
   {
     name: 'AgentVersionId',
@@ -3861,6 +3930,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentVersionSummary',
     declaration: 'export type AgentVersionSummary = Omit<AgentVersion, \'snapshot\'> & {\n    model: ModelSelection;\n    toolCount: number;\n};',
+  },
+  {
+    name: 'AnalysisSummary',
+    declaration: 'export interface AnalysisSummary {\n    sampleCount: number;\n    succeeded: number;\n    failed: number;\n    cancelled: number;\n    successRate: number | null;\n    cancellationRate: number | null;\n    latency: Measurement;\n    queue: Measurement;\n    tokens: {\n        recorded: number | null;\n        average: number | null;\n        validCount: number;\n        unknownCount: number;\n    };\n    tools: CallMetrics;\n    models: CallMetrics;\n    retryRuns: number;\n    interventionRuns: number;\n    resolvedInterventions: number;\n    interventionWait: Measurement;\n    errors: {\n        category: ErrorCategory;\n        count: number;\n    }[];\n    costs: {\n        currency: string;\n        nanoUnits: string;\n        pricedCalls: number;\n        averagePerCall: number;\n        averagePerRun: number;\n    }[];\n    unpricedCalls: number;\n    rejectedCalls: number;\n}',
   },
   {
     name: 'ApiKeyRecord',
@@ -4033,6 +4106,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BrandedNumber',
     declaration: 'export type BrandedNumber<B extends string> = number & {\n    readonly [BRAND]: B;\n};',
+  },
+  {
+    name: 'CallMetrics',
+    declaration: 'export interface CallMetrics {\n    count: number;\n    succeeded: number;\n    failed: number;\n    unknown: number;\n    cancelled: number;\n    successRate: number | null;\n    timeoutRate: number | null;\n    logicalSuccessRate: number | null;\n    retries: number;\n    latency: Measurement;\n}',
   },
   {
     name: 'ClientArtifactBaseline',
@@ -4425,6 +4502,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EpochHeader',
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    tools?: ToolSchema[];\n}',
+  },
+  {
+    name: 'ErrorCategory',
+    declaration: 'export type ErrorCategory = \'tool_timeout\' | \'tool_error\' | \'model_timeout\' | \'model_error\' | \'invalid_params\' | \'rate_limited\' | \'permission_denied\' | \'runtime_error\' | \'unknown\';',
   },
   {
     name: 'FeedbackCategory',
@@ -4835,6 +4916,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
+    name: 'Measurement',
+    declaration: 'export interface Measurement {\n    average: number | null;\n    p50: number | null;\n    p95: number | null;\n    validCount: number;\n    unknownCount: number;\n}',
+  },
+  {
     name: 'Message',
     declaration: 'export interface Message {\n    readonly id: MessageId;\n    readonly role: \'system\' | \'user\' | \'assistant\';\n    readonly content: ContentBlock[];\n    readonly source: MessageSource;\n}',
   },
@@ -4967,6 +5052,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
   {
+    name: 'ObservationQuery',
+    declaration: 'export interface ObservationQuery {\n    window: {\n        kind: \'time\';\n        from: string;\n        to: string;\n    } | {\n        kind: \'last\';\n        count: number;\n    };\n    agentId?: string | undefined;\n    versionId?: string | undefined;\n    compareVersionId?: string | undefined;\n    resourceKey?: string | undefined;\n    errorCategory?: ErrorCategory | undefined;\n    cohortMode?: \'runs\' | \'attempts\' | undefined;\n    ownerTeamId?: string | undefined;\n}',
+  },
+  {
+    name: 'ObservationReport',
+    declaration: 'export interface ObservationReport {\n    revision: string;\n    asOf: string;\n    dataState: \'complete\' | \'partial\';\n    indexedRunCount: number;\n    eligibleRunCount: number;\n    lagMs: number;\n    missingReasons: string[];\n    summary: AnalysisSummary;\n    comparison: {\n        versionId: string;\n        summary: AnalysisSummary;\n        lowSample: boolean;\n    } | null;\n    agents: {\n        agentId: string;\n        summary: AnalysisSummary;\n    }[];\n    resources: ResourceMetrics[];\n    trend: {\n        date: string;\n        summary: AnalysisSummary;\n    }[];\n    active: {\n        status: RunStatus;\n        count: number;\n        oldestCreatedAt: string | null;\n    }[];\n    unknownTimeCount: number;\n}',
+  },
+  {
+    name: 'ObservationRunPage',
+    declaration: 'export interface ObservationRunPage {\n    revision: string;\n    items: {\n        runId: string;\n        agentId: string;\n        versionId: string;\n        status: RunStatus;\n        finishedAt: string | null;\n    }[];\n    nextCursor: string | null;\n}',
+  },
+  {
     name: 'OneShotSubagentDescriptorData',
     declaration: 'export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n}',
   },
@@ -4980,7 +5077,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PlatformRun',
-    declaration: 'export interface PlatformRun {\n    id: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    versionNumber: number;\n    platformWorkspaceId: string;\n    configHash: string;\n    deploymentRevision: number;\n    sessionId: SessionId;\n    createdAt: string;\n    createdBy: string;\n    status: RunStatus;\n    startedAt: string | null;\n    finishedAt: string | null;\n    finishTimeSource: \'execution\' | \'detected\' | null;\n    cancelRequestedAt: string | null;\n    input: {\n        prompt: string;\n    } | null;\n    result: {\n        textPreview: string | null;\n        sessionId: SessionId;\n        finalMessageSeq: number | null;\n    } | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    events: RunLifecycleEvent[];\n}',
+    declaration: 'export interface PlatformRun {\n    ownerTeamIdAtStart?: string | undefined;\n    id: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    versionNumber: number;\n    platformWorkspaceId: string;\n    configHash: string;\n    deploymentRevision: number;\n    sessionId: SessionId;\n    createdAt: string;\n    createdBy: string;\n    status: RunStatus;\n    startedAt: string | null;\n    finishedAt: string | null;\n    finishTimeSource: \'execution\' | \'detected\' | null;\n    cancelRequestedAt: string | null;\n    input: {\n        prompt: string;\n    } | null;\n    result: {\n        textPreview: string | null;\n        sessionId: SessionId;\n        finalMessageSeq: number | null;\n    } | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    events: RunLifecycleEvent[];\n    runtime?: {\n        attempt: number;\n        heartbeatAt: string | null;\n        checkpointSeq: number;\n        checkpointAt: string | null;\n        nextAttemptAt: string | null;\n        deadlineAt: string;\n        resolution: {\n            token: string;\n            callId: string;\n            decision: \'completed\' | \'not-executed\';\n            evidence: string;\n            at: string;\n        } | null;\n    } | undefined;\n}',
   },
   {
     name: 'PlatformRunId',
@@ -5124,7 +5221,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RegistryAgentInput',
-    declaration: 'export interface RegistryAgentInput extends AgentDefinitionInput {\n    description: string;\n    ownerTeamId: string;\n    harnessId: \'deepseek-harness\';\n    tags: string[];\n}',
+    declaration: 'export interface RegistryAgentInput extends AgentDefinitionInput {\n    resources?: AgentResources | undefined;\n    description: string;\n    ownerTeamId: string;\n    harnessId: \'deepseek-harness\';\n    tags: string[];\n}',
   },
   {
     name: 'RegistryAgentSummary',
@@ -5132,7 +5229,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RegistryCatalog',
-    declaration: 'export interface RegistryCatalog extends AgentBuilderCatalog {\n    workspace: RegistryWorkspace;\n    importErrors: string[];\n}',
+    declaration: 'export interface RegistryCatalog extends AgentBuilderCatalog {\n    resources: SharedResource[];\n    workspace: RegistryWorkspace;\n    importErrors: string[];\n}',
   },
   {
     name: 'RegistryPage',
@@ -5144,7 +5241,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RegistryWorkspace',
-    declaration: 'export interface RegistryWorkspace {\n    id: string;\n    name: string;\n    ownerTeamId: string;\n    ownerTeamName: string;\n    accessMode: \'shared-host\';\n}',
+    declaration: 'export interface RegistryWorkspace {\n    id: string;\n    name: string;\n    ownerTeamId: string;\n    ownerTeamName: string;\n    accessMode: \'shared-host\' | \'governed\';\n}',
   },
   {
     name: 'RemoteError',
@@ -5211,6 +5308,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
   },
   {
+    name: 'ResourceBinding',
+    declaration: 'export interface ResourceBinding extends ResourceVersion {\n    name: string;\n}',
+  },
+  {
+    name: 'ResourceInput',
+    declaration: 'export interface ResourceInput {\n    name: string;\n    description: string;\n    ownerTeamId: string;\n    spec: ResourceSpec;\n}',
+  },
+  {
+    name: 'ResourceManifest',
+    declaration: 'export interface ResourceManifest {\n    model: ResourceBinding;\n    tools: ResourceBinding[];\n    skills: ResourceBinding[];\n}',
+  },
+  {
+    name: 'ResourceMetrics',
+    declaration: 'export interface ResourceMetrics {\n    key: string;\n    name: string;\n    kind: \'tool\' | \'model\';\n    resourceId: string | null;\n    resourceVersionId: string | null;\n    calls: CallMetrics;\n    affectedAgents: number;\n    affectedRuns: number;\n    agentCount: number;\n    recordedTokens: number | null;\n    errors: {\n        category: ErrorCategory;\n        count: number;\n    }[];\n    costs: AnalysisSummary[\'costs\'];\n    unpricedCalls: number;\n}',
+  },
+  {
+    name: 'ResourceRef',
+    declaration: 'export interface ResourceRef {\n    resourceId: SharedResourceId;\n    versionId: SharedResourceVersionId;\n}',
+  },
+  {
+    name: 'ResourceSpec',
+    declaration: 'export type ResourceSpec = {\n    kind: \'model\';\n    provider: string;\n    model: string;\n} | {\n    kind: \'tool\';\n    operation: string;\n} | {\n    kind: \'skill\';\n    content: string;\n};',
+  },
+  {
+    name: 'ResourceUsage',
+    declaration: 'export interface ResourceUsage {\n    agentId: string;\n    agentName: string;\n    versionId: string | null;\n    versionNumber: number | null;\n    deployed: boolean;\n}',
+  },
+  {
+    name: 'ResourceVersion',
+    declaration: 'export interface ResourceVersion {\n    id: SharedResourceVersionId;\n    resourceId: SharedResourceId;\n    versionNumber: number;\n    spec: ResourceSpec;\n    specHash: string;\n    createdAt: string;\n}',
+  },
+  {
     name: 'RestoredSessionOptions',
     declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly eventState: SessionSeedEventState;\n}',
   },
@@ -5220,7 +5349,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RunLifecycleEvent',
-    declaration: 'export interface RunLifecycleEvent {\n    eventId: string;\n    runId: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    sessionId: SessionId;\n    type: \'run.created\' | \'run.started\' | \'run.succeeded\' | \'run.failed\' | \'run.cancelled\';\n    occurredAt: string;\n}',
+    declaration: 'export interface RunLifecycleEvent {\n    eventId: string;\n    runId: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    sessionId: SessionId;\n    type: \'run.created\' | \'run.started\' | \'run.succeeded\' | \'run.failed\' | \'run.cancelled\' | \'run.recovering\' | \'run.retry-scheduled\' | \'run.blocked\' | \'run.cancel-requested\' | \'run.resolved\';\n    occurredAt: string;\n    actorId?: string | undefined;\n    interventionId?: string | undefined;\n    decision?: \'completed\' | \'not-executed\' | undefined;\n}',
   },
   {
     name: 'RunnerFailureRule',
@@ -5228,7 +5357,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RunStatus',
-    declaration: 'export type RunStatus = \'PENDING\' | \'RUNNING\' | \'SUCCEEDED\' | \'FAILED\' | \'CANCELLED\';',
+    declaration: 'export type RunStatus = \'PENDING\' | \'RUNNING\' | \'RETRY_WAIT\' | \'RECOVERING\' | \'BLOCKED\' | \'SUCCEEDED\' | \'FAILED\' | \'CANCELLED\';',
   },
   {
     name: 'RunTrace',
@@ -5859,6 +5988,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SettingsUpdateSource = \'update\' | \'provider\';',
   },
   {
+    name: 'SharedResource',
+    declaration: 'export interface SharedResource extends ResourceInput {\n    createdBy?: string | undefined;\n    updatedBy?: string | undefined;\n    id: SharedResourceId;\n    workspaceId: string;\n    status: ResourceStatus;\n    revision: number;\n    versions: ResourceVersion[];\n    createdAt: string;\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'SharedResourceId',
+    declaration: 'export type SharedResourceId = string & Branded<\'SharedResourceId\'>;',
+  },
+  {
+    name: 'SharedResourceVersionId',
+    declaration: 'export type SharedResourceVersionId = string & Branded<\'SharedResourceVersionId\'>;',
+  },
+  {
     name: 'ShellExecRequest',
     declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n}',
   },
@@ -6416,11 +6557,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TraceEvent',
-    declaration: 'export interface TraceEvent {\n    eventId: string;\n    type: TraceEventType;\n    occurredAt: string;\n    sourceSeq: number | null;\n    sourceRunEventId: string | null;\n    operationId: string | null;\n    turn: number | null;\n    step: number | null;\n    provider: string | null;\n    model: string | null;\n    tool: string | null;\n    durationMs: number | null;\n    preview: TracePreview | null;\n    usage: TraceUsage | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    incomplete: boolean;\n}',
+    declaration: 'export interface TraceEvent {\n    eventId: string;\n    type: TraceEventType;\n    occurredAt: string;\n    sourceSeq: number | null;\n    sourceRunEventId: string | null;\n    operationId: string | null;\n    attemptId?: string | undefined;\n    attemptNumber?: number | undefined;\n    actorId?: string | undefined;\n    interventionId?: string | undefined;\n    dispatched?: boolean | undefined;\n    turn: number | null;\n    step: number | null;\n    provider: string | null;\n    model: string | null;\n    tool: string | null;\n    durationMs: number | null;\n    preview: TracePreview | null;\n    usage: TraceUsage | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    incomplete: boolean;\n}',
   },
   {
     name: 'TraceEventType',
-    declaration: 'export type TraceEventType = RunLifecycleEvent[\'type\'] | \'model.call.started\' | \'model.call.completed\' | \'model.call.failed\' | \'model.call.cancelled\' | \'model.retry.scheduled\' | \'tool.call.started\' | \'tool.call.completed\' | \'tool.call.failed\' | \'final.answer\';',
+    declaration: 'export type TraceEventType = RunLifecycleEvent[\'type\'] | \'model.call.started\' | \'model.call.completed\' | \'model.call.failed\' | \'model.call.cancelled\' | \'model.retry.scheduled\' | \'tool.call.started\' | \'tool.call.completed\' | \'tool.call.failed\' | \'tool.retry.started\' | \'tool.retry.completed\' | \'tool.retry.failed\' | \'final.answer\' | \'human.intervention.requested\' | \'human.intervention.resolved\';',
   },
   {
     name: 'TracePreview',
@@ -6428,7 +6569,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TraceUsage',
-    declaration: 'export interface TraceUsage {\n    inputTokens: number | null;\n    outputTokens: number;\n    totalTokens: number | null;\n}',
+    declaration: 'export interface TraceUsage {\n    inputTokens: number | null;\n    outputTokens: number;\n    totalTokens: number | null;\n    uncachedInputTokens?: number | undefined;\n    cacheReadTokens?: number | undefined;\n    cacheWriteTokens?: number | undefined;\n}',
   },
   {
     name: 'TurnEndCancelCause',
@@ -6805,10 +6946,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceValue',
     declaration: 'export interface WorkspaceValue {\n    readonly workspace: WorkspaceView;\n}',
-  },
-  {
-    name: 'WorkspaceView',
-    declaration: 'export interface WorkspaceView {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}',
   },
 ]
 

@@ -1,0 +1,11 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`analyzes versions and estimated costs, enforces roles and drills into the original Trace > observability sections 1`] = `
+[
+  "工作区运行总览",
+  "任务失败原因",
+  "依赖健康",
+  "每日趋势",
+  "Agent 排行",
+]
+`;

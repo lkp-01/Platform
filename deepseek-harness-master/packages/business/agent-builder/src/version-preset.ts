@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { renderDefinition } from './definition.ts'
 import { verifyVersion } from './version-schema.ts'
+import { resourcePrompt } from './resource-schema.ts'
 import type { AgentVersion } from './types.ts'
 
-/** Render format one exclusively from captured configuration.
+/** Render legacy or resource-bound compositions exclusively from captured configuration.
  * @param version - immutable saved behavior.
  * @returns JSON/YAML composition with explicit frozen inputs.
  */
@@ -14,7 +15,7 @@ export function renderVersion(version: AgentVersion): string {
   verifyVersion(version)
   const { snapshot } = version
   const rows = z.array(z.looseObject({ id: z.string(), name: z.string(), config: z.unknown() })).parse(JSON.parse(renderDefinition({
-    name: version.id, prompt: snapshot.prompt, model: snapshot.model, toolIds: snapshot.toolIds,
+    name: version.id, prompt: resourcePrompt(snapshot.prompt, snapshot.resources), model: snapshot.model, toolIds: snapshot.toolIds,
     requestToken: '00000000-0000-4000-8000-000000000000',
   })))
   for (const row of rows) {

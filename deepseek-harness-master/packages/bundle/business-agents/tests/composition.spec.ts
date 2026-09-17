@@ -18,6 +18,7 @@ import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import Commands from '@deepseek-ai/dsh-commands'
 import AgentBuilder from '@deepseek-ai/dsh-agent-builder'
 import Storage from '@deepseek-ai/dsh-storage'
+import Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import { createSessionTestController } from '../../../api/session-controller/tests/test-remote.ts'
@@ -42,10 +43,24 @@ async function harness(extraRoot?: string) {
   await ctx.plugin(Commands)
   await ctx.plugin(Records)
   await mountAgentLoopTestHarness(ctx)
+  const sessionRoot = await mkdtemp(join(tmpdir(), 'dsh-business-sessions-'))
+  temporaryRoots.push(sessionRoot)
+  await ctx.plugin(Persistence, { root: sessionRoot, compression: 'none' })
   const roots = [{ path: root, trust: 'system' as const }]
   if (extraRoot !== undefined) roots.push({ path: extraRoot, trust: 'system' })
   await ctx.plugin(AgentPresets, { default: 'customer-service', includeShippedRoot: false, includeUserRoot: false, roots })
   return ctx
+}
+
+function mountController(ctx: Context, directory: string) {
+  const controller = createSessionTestController(ctx, { cwd: directory, defaultModelSelection: () => ({ provider: 'demo', model: 'demo' }) })
+  // The direct test controller has no plugin inject scope. Keep its direct face
+  // when the scheduler calls it from a background plugin context.
+  const modelCatalog = controller.modelCatalog.bind(controller)
+  const create = controller.create.bind(controller)
+  vi.spyOn(ctx.sessionController, 'modelCatalog').mockImplementation(modelCatalog)
+  vi.spyOn(ctx.sessionController, 'create').mockImplementation(create)
+  return controller
 }
 
 async function agentOn(ctx: Context, preset: string) {
@@ -97,21 +112,23 @@ async function platform(steps: ConstructorParameters<typeof ScriptedModel>[0]) {
   const ctx = await harness(directory)
   const model = new ScriptedModel(steps)
   ctx.llm.registerAdapter(['demo'], model)
-  createSessionTestController(ctx, { cwd: directory, defaultModelSelection: () => ({ provider: 'demo', model: 'demo' }) })
+  mountController(ctx, directory)
   await ctx.plugin(Storage)
   await ctx.plugin(StorageJson, { root: join(directory, 'storage') })
   await ctx.plugin(StorageDomain, { backend: 'json' })
   const units: import('@deepseek-ai/dsh-storage').KvUnit[] = []
   const traceUnits: import('@deepseek-ai/dsh-storage').KvUnit[] = []
+  const analysisUnits: import('@deepseek-ai/dsh-storage').KvUnit[] = []
   const kv = ctx.storage.backend.get('json').kv!
   const open = kv.open.bind(kv)
   vi.spyOn(kv, 'open').mockImplementation(async (descriptor) => {
     const unit = await open(descriptor)
     if (descriptor.name.includes('platform_agent_runs')) units.push(unit)
     if (descriptor.name.includes('platform_run_traces')) traceUnits.push(unit)
+    if (descriptor.name.includes('platform_observability')) analysisUnits.push(unit)
     return unit
   })
-  const fiber = ctx.plugin(AgentBuilder, { root: directory })
+  const fiber = ctx.plugin(AgentBuilder, { root: directory, runtime: { pollMs: 20 }, observabilityRefreshMs: 20 })
   await fiber
   const builder = ctx.agentBuilder
   const resource = await builder.registryCreate('shared', { name: 'Run SRE', prompt: 'Run instruction',
@@ -122,8 +139,70 @@ async function platform(steps: ConstructorParameters<typeof ScriptedModel>[0]) {
   const start = (token = randomUUID(), input = 'Task input') => builder.runStart('shared', resource.id, input, token)
   const get = (id: string) => builder.runGet('shared', resource.id, id)
   const cancel = (id: string) => builder.runCancel('shared', resource.id, id)
-  return { ctx, model, builder, resource, version, start, get, cancel, units, traceUnits, fiber, directory }
+  return { ctx, model, builder, resource, version, start, get, cancel, units, traceUnits, analysisUnits, fiber, directory }
 }
+
+describe('published cross-run analysis', () => {
+  it('retains versioned prices across reload and rejects edits to a published rate', async () => {
+    const f = await platform([() => [
+      { type: 'usage', usage: { inputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 5, totalTokens: 15 } },
+      ...finish(),
+    ]])
+    const run = await f.start()
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('SUCCEEDED')
+    await f.fiber.dispose()
+    const path = join(f.directory, 'model-prices.json')
+    const prices = [{ id: 'demo-price', provider: 'demo', model: 'demo', currency: 'USD',
+      effectiveFrom: '2020-01-01T00:00:00.000Z', effectiveTo: null, input: 1000000, cacheRead: 1000000, cacheWrite: 1000000, output: 1000000 }]
+    await writeFile(path, JSON.stringify(prices))
+    const priced = f.ctx.plugin(AgentBuilder, { root: f.directory, observabilityPricesFile: path, observabilityRefreshMs: 20 })
+    await priced
+    const query = { window: { kind: 'last' as const, count: 1000 } }
+    await expect.poll(async () => (await f.ctx.agentBuilder.observabilityQuery('shared', query)).summary.costs[0]?.nanoUnits).toBe('15000')
+    await priced.dispose()
+    await writeFile(path, JSON.stringify(prices.map(price => ({ ...price, input: 2000000 }))))
+    const changed = f.ctx.plugin(AgentBuilder, { root: f.directory, observabilityPricesFile: path })
+    await expect(changed).rejects.toThrow('immutable')
+    await changed.dispose()
+    const reopened = f.ctx.plugin(AgentBuilder, { root: f.directory, observabilityRefreshMs: 20 })
+    await reopened
+    await expect.poll(async () => (await f.ctx.agentBuilder.observabilityQuery('shared', query)).dataState).toBe('complete')
+    expect((await f.ctx.agentBuilder.observabilityQuery('shared', query)).summary.costs[0]?.nanoUnits).toBe('15000')
+  })
+
+  it('indexes unread traces, replaces replayed facts, rejects stale cursors and survives reload', async () => {
+    const f = await platform([finish, finish])
+    const query = { agentId: f.resource.id, window: { kind: 'last' as const, count: 1000 } }
+    const first = await f.start()
+    await expect.poll(async () => (await f.builder.observabilityQuery('shared', query)).summary.succeeded).toBe(1)
+    const second = await f.start()
+    await expect.poll(async () => (await f.builder.observabilityQuery('shared', query)).summary.succeeded).toBe(2)
+    const report = await f.builder.observabilityQuery('shared', query)
+    expect(report.summary.tokens.average).toBeNull()
+    const page = await f.builder.observabilityRuns('shared', query, undefined, 1)
+    expect(page.nextCursor).not.toBeNull()
+    expect((await f.builder.observabilityRuns('shared', query, page.nextCursor!)).items).toHaveLength(1)
+    await expect(f.builder.observabilityRuns('shared', { ...query, window: { kind: 'last', count: 1 } }, page.nextCursor!)).rejects.toThrow('changed')
+    await expect(f.builder.observabilityQuery('shared', { ...query, versionId: 'foreign' })).rejects.toThrow()
+    expect(new Set((await f.builder.observabilityRuns('shared', query)).items.map(row => row.runId))).toEqual(new Set([first.id, second.id]))
+    await f.fiber.dispose()
+    await f.ctx.plugin(AgentBuilder, { root: f.directory, runtime: { pollMs: 20 }, observabilityRefreshMs: 20 })
+    await expect.poll(async () => (await f.ctx.agentBuilder.observabilityQuery('shared', query)).dataState).toBe('complete')
+    expect((await f.ctx.agentBuilder.observabilityQuery('shared', query)).summary).toEqual(report.summary)
+  })
+
+  it('does not turn analytics persistence failure into task failure and repairs after storage recovers', async () => {
+    const f = await platform([finish])
+    const put = vi.spyOn(f.analysisUnits[0]!, 'putRecord').mockRejectedValue(new Error('analysis disk failure'))
+    const run = await f.start()
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('SUCCEEDED')
+    const query = { window: { kind: 'last' as const, count: 1000 } }
+    expect((await f.builder.observabilityQuery('shared', query)).dataState).toBe('partial')
+    put.mockRestore()
+    await expect.poll(async () => (await f.builder.observabilityQuery('shared', query)).summary.succeeded).toBe(1)
+    expect(f.model.requests).toHaveLength(1)
+  })
+})
 
 describe('persistent platform Trace', () => {
   it('records live model starts, provider usage and a source-ordered final answer across a reload', async () => {
@@ -149,7 +228,7 @@ describe('persistent platform Trace', () => {
     await expect(f.builder.runTraceEvents('shared', f.resource.id, run.id, undefined, 101)).rejects.toThrow()
     await expect(f.builder.runTraceEvents('shared', f.resource.id, run.id, 'invalid')).rejects.toThrow('cursor')
     await f.fiber.dispose()
-    await f.ctx.plugin(AgentBuilder, { root: f.directory })
+    await f.ctx.plugin(AgentBuilder, { root: f.directory, runtime: { pollMs: 20 } })
     expect(await query()).toEqual(page)
   })
   it('isolates storage failure from successful execution and retries an incomplete projection', async () => {
@@ -175,6 +254,7 @@ describe('persistent platform Run lifecycle', () => {
       return (snapshot.tables.runs?.[run.id] as { status?: string } | undefined)?.status
     }).toBe('SUCCEEDED')
     const observe = vi.spyOn(f.ctx.sessionQuery, 'observeSession')
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('SUCCEEDED')
     const completed = await f.get(run.id)
     expect(completed).toMatchObject({ status: 'SUCCEEDED', input: { prompt: 'Task input' }, result: { textPreview: '完成' } })
     expect(completed.startedAt).not.toBeNull()
@@ -187,8 +267,12 @@ describe('persistent platform Run lifecycle', () => {
     expect(await f.cancel(run.id)).toEqual(completed)
     expect(f.model.requests).toHaveLength(1)
     await f.fiber.dispose()
-    await f.ctx.plugin(AgentBuilder, { root: f.directory })
-    expect(await f.ctx.agentBuilder.runGet('shared', f.resource.id, run.id)).toEqual(completed)
+    await f.ctx.plugin(AgentBuilder, { root: f.directory, runtime: { pollMs: 20 } })
+    const reopened = await f.ctx.agentBuilder.runGet('shared', f.resource.id, run.id)
+    const { runtime: beforeCheckpoint, ...beforeLifecycle } = completed
+    const { runtime: afterCheckpoint, ...afterLifecycle } = reopened
+    expect(afterLifecycle).toEqual(beforeLifecycle)
+    expect(afterCheckpoint?.checkpointSeq).toBeGreaterThanOrEqual(beforeCheckpoint?.checkpointSeq ?? -1)
   })
 
   it('upgrades accepted legacy records and closes orphan admissions without resubmitting', async () => {
@@ -197,14 +281,15 @@ describe('persistent platform Run lifecycle', () => {
     await expect.poll(async () => (await f.get(run.id)).status).toBe('SUCCEEDED')
     const snapshot = await f.units[0]!.loadAll()
     const saved = snapshot.tables.runs![run.id] as Record<string, unknown>
+    delete saved.policy
+    delete saved.runtime
     const legacy = { ...saved, status: 'accepted', format: 1, startedAt: null, finishedAt: null, input: null, result: null, events: [], lastSessionSeq: -1 }
     await f.units[0]!.putRecord('runs', run.id, legacy)
     await f.units[0]!.putRecord('runs', 'run-orphan', { ...legacy, id: 'run-orphan', sessionId: 'session-missing' })
     await f.fiber.dispose()
-    await f.ctx.plugin(AgentBuilder, { root: f.directory })
-    const upgraded = await f.ctx.agentBuilder.runGet('shared', f.resource.id, run.id)
-    expect(upgraded).toMatchObject({ status: 'SUCCEEDED', input: { prompt: 'Task input' }, result: { textPreview: '完成' } })
-    expect(await f.ctx.agentBuilder.runGet('shared', f.resource.id, 'run-orphan')).toMatchObject({ status: 'FAILED',
+    await f.ctx.plugin(AgentBuilder, { root: f.directory, runtime: { pollMs: 20 } })
+    await expect.poll(() => f.ctx.agentBuilder.runGet('shared', f.resource.id, run.id)).toMatchObject({ status: 'SUCCEEDED', input: { prompt: 'Task input' }, result: { textPreview: '完成' } })
+    await expect.poll(() => f.ctx.agentBuilder.runGet('shared', f.resource.id, 'run-orphan')).toMatchObject({ status: 'FAILED',
       startedAt: null, finishTimeSource: 'detected', error: { code: 'EXECUTION_INTERRUPTED' } })
     expect(f.model.requests).toHaveLength(1)
   })
@@ -224,7 +309,7 @@ describe('persistent platform Run lifecycle', () => {
     await writeFile(join(f.directory, f.version.id, 'agent.cordis.yml'), 'tampered')
     const run = await f.start()
     await expect.poll(async () => (await f.get(run.id)).status).toBe('FAILED')
-    expect(await f.get(run.id)).toMatchObject({ startedAt: null, error: { code: 'START_FAILED' } })
+    expect(await f.get(run.id)).toMatchObject({ startedAt: null, error: { code: 'EXECUTION_FAILED' } })
     await expect(f.builder.runCancel('foreign', f.resource.id, run.id)).rejects.toThrow()
     expect(f.model.requests).toHaveLength(0)
   })
@@ -242,9 +327,10 @@ describe('persistent platform Run lifecycle', () => {
     const run = await f.start()
     await entered.promise
     try {
-      expect((await f.cancel(run.id)).status).toBe('CANCELLED')
-      expect((await f.cancel(run.id)).status).toBe('CANCELLED')
+      expect((await f.cancel(run.id)).cancelRequestedAt).not.toBeNull()
+      expect((await f.cancel(run.id)).cancelRequestedAt).not.toBeNull()
     } finally { released.resolve(undefined) }
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('CANCELLED')
     await f.fiber.dispose()
     expect(f.model.requests).toHaveLength(0)
   })
@@ -288,11 +374,11 @@ describe('business presets through the production Loader and Agent Loop', () => 
     const release = Promise.withResolvers<undefined>()
     const model = new ScriptedModel([async () => { started.resolve(undefined); await release.promise; return finish() }, finish])
     ctx.llm.registerAdapter(['demo'], model)
-    const controller = createSessionTestController(ctx, { cwd: directory, defaultModelSelection: () => ({ provider: 'demo', model: 'demo' }) })
+    const controller = mountController(ctx, directory)
     await ctx.plugin(Storage)
     await ctx.plugin(StorageJson, { root: join(directory, 'storage') })
     await ctx.plugin(StorageDomain, { backend: 'json' })
-    await ctx.plugin(AgentBuilder, { root: directory })
+    await ctx.plugin(AgentBuilder, { root: directory, runtime: { pollMs: 20 } })
     const builder = ctx.agentBuilder
     const input = { name: 'Versioned SRE', prompt: 'Prompt A literal {{value}}', model: { provider: 'demo', model: 'demo' },
       toolIds: ['order_query'], description: '', tags: [], ownerTeamId: 'shared-team', harnessId: 'deepseek-harness' as const }
@@ -331,7 +417,7 @@ describe('business presets through the production Loader and Agent Loop', () => 
       await expect(builder.runStart('shared', resource.id, 'new', randomUUID())).rejects.toThrow('Restore')
       expect(archived.lifecycle).toBe('archived')
     } finally { release.resolve(undefined); await ctx.agents.get(a.sessionId)!.whenIdle() }
-    expect((await builder.runGet('shared', resource.id, a.id)).status).toBe('SUCCEEDED')
+    await expect.poll(async () => (await builder.runGet('shared', resource.id, a.id)).status).toBe('SUCCEEDED')
     expect(model.errors).toEqual([])
   })
   it('creates reusable definitions and initializes distinct models through the real Session Controller', async () => {
@@ -340,13 +426,13 @@ describe('business presets through the production Loader and Agent Loop', () => 
     const ctx = await harness(directory)
     const model = new ScriptedModel([finish, finish, finish])
     ctx.llm.registerAdapter(['demo'], model)
-    const controller = createSessionTestController(ctx, { cwd: directory, defaultModelSelection: () => ({ provider: 'demo', model: 'demo' }) })
+    const controller = mountController(ctx, directory)
     await ctx.plugin(Storage)
     const storageRoot = await mkdtemp(join(tmpdir(), 'dsh-builder-storage-'))
     temporaryRoots.push(storageRoot)
     await ctx.plugin(StorageJson, { root: storageRoot })
     await ctx.plugin(StorageDomain, { backend: 'json' })
-    await ctx.plugin(AgentBuilder, { root: directory })
+    await ctx.plugin(AgentBuilder, { root: directory, runtime: { pollMs: 20 } })
     const builder = ctx.agentBuilder
     const input = { name: 'Custom support', prompt: 'Literal {{customer}}\n!!js this is text', model: { provider: 'demo', model: 'other' }, toolIds: ['order_query', 'calendar_query'] }
     const first = await builder.create(input, randomUUID())

@@ -576,6 +576,22 @@ Creates immutable business definitions without accepting composition code.
  */
 @Remote('runTraceGet') async runTraceGet(workspaceId: string, id: string, runId: string): Promise<RunTrace>
 
+/** Analyze an Agent or administrator-authorized workspace using published facts.
+ * @param workspaceId - organization scope.
+ * @param query - explicit cohort and optional version/resource filters.
+ * @returns metrics, coverage, trends and comparison.
+ */
+@Remote('observabilityQuery') async observabilityQuery(workspaceId: string, query: ObservationQuery): Promise<ObservationReport>
+
+/** List the same analysis cohort for Trace drill-down.
+ * @param workspaceId - organization scope.
+ * @param query - exact report filters.
+ * @param cursor - opaque filter-bound cursor.
+ * @param limit - bounded page size.
+ * @returns links to authorized Run details.
+ */
+@Remote('observabilityRuns') async observabilityRuns(workspaceId: string, query: ObservationQuery, cursor?: string, limit?: number): Promise<ObservationRunPage>
+
 /** Read source-ordered execution facts with bounded previews.
  * @param workspaceId - organization scope.
  * @param id - Agent identity.
@@ -594,11 +610,68 @@ Creates immutable business definitions without accepting composition code.
  */
 @Remote('runCancel') async runCancel(workspaceId: string, id: string, runId: string): Promise<PlatformRun>
 
+/** Record externally verified evidence for a blocked tool call.
+ * @param workspaceId - organization workspace.
+ * @param id - owning Agent.
+ * @param runId - blocked Run.
+ * @param callId - original tool invocation identity.
+ * @param decision - externally established outcome.
+ * @param evidence - verification evidence retained in the audit record.
+ * @param token - idempotent request identity.
+ * @returns Run queued for recovery after the decision is durable.
+ */
+@Remote('runResolve') async runResolve(workspaceId: string, id: string, runId: string, callId: string, decision: 'completed' | 'not-executed', evidence: string, token: string): Promise<PlatformRun>
+
 /** Resolve a managed Session for the execution-page cancellation entry.
  * @param sessionId - existing Session identity.
  * @returns task after checking its configured organization scope.
  */
 @Remote('runForSession') async runForSession(sessionId: string): Promise<PlatformRun>
+
+/** List all managed resources and their published versions.
+ * @returns public configuration without credentials.
+ */
+@Remote('resourceList') async resourceList(): Promise<SharedResource[]>
+
+/** Register an unpublished resource draft.
+ * @param input - resource metadata and configuration.
+ * @param token - retry UUID.
+ * @returns saved draft.
+ */
+@Remote('resourceCreate') async resourceCreate(input: ResourceInput, token: string): Promise<SharedResource>
+
+/** Edit the next resource version, retaining all published content.
+ * @param id - resource identity.
+ * @param revision - loaded revision.
+ * @param input - replacement draft.
+ * @returns updated resource.
+ */
+@Remote('resourceUpdate') async resourceUpdate(id: string, revision: number, input: ResourceInput): Promise<SharedResource>
+
+/** Publish a resource draft without changing any Agent binding.
+ * @param id - resource identity.
+ * @param revision - loaded revision.
+ * @param token - retry UUID.
+ * @returns immutable resource version.
+ */
+@Remote('resourcePublish') async resourcePublish(id: string, revision: number, token: string): Promise<ResourceVersion>
+
+/** Change resource availability without deleting historical content.
+ * @param id - resource identity.
+ * @param revision - loaded revision.
+ * @param status - new availability.
+ * @returns saved resource.
+ */
+@Remote('resourceStatus') async resourceStatus(id: string, revision: number, status: ResourceStatus): Promise<SharedResource>
+
+/** Derive consumers from Agent drafts and immutable versions.
+ * @param id - resource identity.
+ * @returns direct uses, including deployed and historical Agent versions.
+ */
+@Remote('resourceUsage') async resourceUsage(id: string): Promise<ResourceUsage[]>
+
+/** Import installed resource adapters for an authorized workspace administrator. */
+async seedWorkspaceResources(): Promise<void>
 ```
 
 Source: [`packages/business/agent-builder/src/index.ts`](../../packages/business/agent-builder/src/index.ts)

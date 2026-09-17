@@ -285,6 +285,8 @@ export interface WebScaffold {
 
 /** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
+  /** Governed portal tests use separate user sessions and require a fail-closed HTTP policy. */
+  governedPortal?: boolean
   /** Enable the real Open In rows with deterministic launch-environment facts. */
   openInAppEnvironment?: LaunchEnvironmentSnapshot
   /** Compare the replayed root session with `replayFixture`; defaults on for a manifest-owned canonical recording. */
@@ -589,7 +591,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     {
       id: 'webserver',
       config: {
-        host: '127.0.0.1', port: 0, compression: 'gzip',
+        host: '127.0.0.1', port: 0, compression: 'gzip', requireAccessPolicy: options.governedPortal === true,
         compressionLevel: 1, compressionThresholdBytes: 1024,
       },
     },
@@ -790,6 +792,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     }
     baseUrl = `http://${browserHost}:${String(port)}`
     authenticatedUrl = ctx.connection.authenticatedUrl(baseUrl)
+    if (options.governedPortal !== true) {
     const login = await fetch(authenticatedUrl, { redirect: 'manual' })
     const setCookie = login.headers.get('set-cookie')
     if (login.status !== 303 || login.headers.get('location') !== '/' || setCookie === null) {
@@ -798,6 +801,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     cookieHeader = setCookie.split(';', 1)[0] ?? ''
     if (cookieHeader.length === 0) {
       throw new Error('web e2e scaffold: browser token exchange returned an empty session cookie')
+    }
     }
   } catch (error) {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)

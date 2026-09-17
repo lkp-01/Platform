@@ -1,3 +1,4 @@
+import { platformActor } from './principal-context.ts'
 /** Default-target activation with atomic pointer, history and retry receipts. */
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -34,6 +35,14 @@ export class AgentDeployments {
   static async open(storage: DomainFacility, registry: AgentRegistry, versions: AgentVersions): Promise<AgentDeployments> {
     return new AgentDeployments(await storage.open(spec), registry, versions)
   }
+  /** Verify historical activations retain their Agent and version workspace. */
+  validateOwnership(): void {
+    for (const [agentId, row] of this.domain.table('agents').entries()) for (const deployment of row.history) {
+      if (deployment.agentId !== agentId) throw new Error('Deployment Agent ownership mismatch')
+      this.versions.get(deployment.platformWorkspaceId, deployment.agentId, deployment.versionId)
+    }
+  }
+
   /** Drain persistent writes. */
   async close(): Promise<void> { await this.domain.close() }
   /** Read the current default activation.
@@ -71,7 +80,8 @@ export class AgentDeployments {
     return this.registry.exclusive(workspace, agentId, async () => {
       const previous = this.domain.table('agents').get(agentId)
       const fingerprint = JSON.stringify([versionId, revision, action])
-      const receipt = previous?.receipts[token]
+      const receiptKey = platformActor() === 'shared-host' ? token : `${platformActor()}:${token}`
+      const receipt = previous?.receipts[receiptKey]
       if (previous !== undefined && receipt !== undefined) {
         if (receipt.fingerprint !== fingerprint) throw new RegistryError('conflict', 'Deployment request token already used for different input')
         const saved = previous.history[receipt.revision - 1]
@@ -88,9 +98,10 @@ export class AgentDeployments {
       }
       await prepare(version)
       const deployment: AgentDeployment = { agentId: agent.id, platformWorkspaceId: workspace, target: 'default', versionId: version.id,
-        previousVersionId: current?.versionId ?? null, revision: revision + 1, action, updatedBy: 'shared-host', updatedAt: new Date().toISOString() }
+        previousVersionId: current?.versionId ?? null, revision: revision + 1, action,
+        updatedBy: platformActor(), updatedAt: new Date().toISOString() }
       await this.domain.table('agents').put(agentId, { history: [...(previous?.history ?? []), deployment],
-        receipts: { ...previous?.receipts, [token]: { fingerprint, revision: deployment.revision } } })
+        receipts: { ...previous?.receipts, [receiptKey]: { fingerprint, revision: deployment.revision } } })
       return structuredClone(deployment)
     })
   }

@@ -1,3 +1,4 @@
+import { SharedResourcesPanel, type ResourceActions } from './SharedResources.tsx'
 /** Register the optional platform resource panel through existing layout slots. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -30,6 +31,16 @@ export function mountRegistry(ctx: Context): void {
       mounted = true
       const panelId = brandString<MainPanelId>('agents')
       const actions: RegistryActions = {
+        observabilityQuery: async (...args) => {
+          const result = await scope.remote.agentBuilder.observabilityQuery(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        observabilityRuns: async (...args) => {
+          const result = await scope.remote.agentBuilder.observabilityRuns(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
         versionCreate: async (...args) => {
           const result = await scope.remote.agentBuilder.versionCreate(...args)
           if (!result.ok) throw new Error(result.error.message)
@@ -62,6 +73,11 @@ export function mountRegistry(ctx: Context): void {
         },
         runStart: async (...args) => {
           const result = await scope.remote.agentBuilder.runStart(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        runResolve: async (...args) => {
+          const result = await scope.remote.agentBuilder.runResolve(...args)
           if (!result.ok) throw new Error(result.error.message)
           return result.value
         },
@@ -117,6 +133,39 @@ export function mountRegistry(ctx: Context): void {
           return result.value
         },
       }
+      const resourceActions: ResourceActions = {
+        catalog: () => actions.catalog(),
+        resourceList: async (...args) => {
+          const result = await scope.remote.agentBuilder.resourceList(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        resourceCreate: async (...args) => {
+          const result = await scope.remote.agentBuilder.resourceCreate(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        resourceUpdate: async (...args) => {
+          const result = await scope.remote.agentBuilder.resourceUpdate(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        resourcePublish: async (...args) => {
+          const result = await scope.remote.agentBuilder.resourcePublish(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        resourceStatus: async (...args) => {
+          const result = await scope.remote.agentBuilder.resourceStatus(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        resourceUsage: async (...args) => {
+          const result = await scope.remote.agentBuilder.resourceUsage(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+      }
       scope.effect(() => scope.locale.register('agentRegistry', { en: registryEn, zh: registryZh }), 'agent-registry.locale')
       scope.slots.inject('conversation.composer', () => scope.slots.register({
         name: 'conversation.composer', priority: -20, locale: 'agentRegistry',
@@ -136,6 +185,10 @@ export function mountRegistry(ctx: Context): void {
         openLink()
         return () => { window.removeEventListener('hashchange', openLink); dispose() }
       })
+      scope.slots.inject('main', () => scope.slots.register({ name: 'main', key: 'resources', locale: 'agentRegistry', inject: () => resourceActions }, SharedResourcesPanel))
+      scope.slots.inject('sidebar.panellist', () => scope.slots.register({ name: 'sidebar.panellist', id: 'resources', order: -19,
+        label: () => scope.locale.bind('agentRegistry')('resourcesTitle'),
+      }, RegistryIcon))
       scope.slots.inject('sidebar.panellist', () => scope.slots.register({ name: 'sidebar.panellist', id: 'agents', order: -20,
         label: () => scope.locale.bind('agentRegistry')('title'),
       }, RegistryIcon))

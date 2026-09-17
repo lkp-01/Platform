@@ -20,6 +20,7 @@ export interface VersionActions {
   runList(workspace: string, id: string, cursor: number, versionId?: string, status?: RunStatus): Promise<AgentHistoryPage<PlatformRun>>
   runGet(workspace: string, id: string, runId: string): Promise<PlatformRun>
   runCancel(workspace: string, id: string, runId: string): Promise<PlatformRun>
+  runResolve?(workspace: string, id: string, runId: string, callId: string, decision: 'completed' | 'not-executed', evidence: string, token: string): Promise<PlatformRun>
   runTraceEvents(workspace: string, id: string, runId: string, cursor?: string, limit?: number): Promise<RunTracePage>
   openRun(run: PlatformRun): void
 }
@@ -146,6 +147,7 @@ export function AgentVersionsPanel(props: Props) {
       <dl><dt>{t('versionId')}</dt><dd>{selected.id}</dd><dt>{t('sourceRevision')}</dt><dd>{selected.sourceRevision}</dd>
         <dt>{t('model')}</dt><dd>{selected.snapshot.model.provider} / {selected.snapshot.model.model}</dd><dt>{t('tools')}</dt><dd>{selected.snapshot.toolIds.join(', ') || t('noTools')}</dd>
         <dt>{t('configHash')}</dt><dd>{selected.configHash}</dd></dl><h3>{t('prompt')}</h3><pre className={css.prompt}>{selected.snapshot.prompt}</pre>
+      {selected.snapshot.resources !== undefined && <details><summary>{t('resourceBindings')}</summary><pre className={css.prompt}>{JSON.stringify(selected.snapshot.resources, null, 2)}</pre></details>}
       <details><summary>{t('executionConfig')}</summary><pre className={css.prompt}>{JSON.stringify(selected.snapshot.executionConfig, null, 2)}</pre></details>
     </section>}
     {mode !== 'runs' && <details className={css.deploymentHistory}><summary>{t('deploymentHistory')}</summary>

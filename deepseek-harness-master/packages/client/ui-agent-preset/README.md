@@ -39,6 +39,13 @@ When the roster carries the self-referential `cordis` preset, its dashed add-car
 
 -----
 
+
+### Shared resource selection
+
+When the AgentBuilder service is mounted, **Resources** provides registration, draft editing, version publication, lifecycle controls and consumer links. Agent editing selects exact published Model, Tool and Skill versions. Version details show the captured resource manifest; publication does not change existing selections. All resource actions use the shared demo Host.
+
+Run details show recovery state, worker attempt, checkpoint, retry time and deadline. A BLOCKED task exposes **Record verified outcome** with its tool call ID and verification evidence. The server persists the decision before continuing; cancellation remains available while blocked or waiting. The page uses the existing Run and Trace APIs.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
@@ -66,6 +73,8 @@ Read these pages when the preset surface is not enough. They move from the brows
 When the business authoring service is composed, **Agent library** opens a shared dialog from the new-session selector, Session header or Settings. It lists built-in and saved Agents and offers the Name / Prompt / Model / Tools form, template copies and Start Chat. Saving keeps the draft on failure and uses the same submission token for retries. The generic Preset management section remains separate.
 
 The Run detail includes a **Trace** timeline with model/tool calls, results, failures and the final answer. It shows provider-reported tokens, call counts, bounded expandable previews and missing-data indicators. Trace polling continues independently after the task ends until its projection settles; partial/unavailable data offers Refresh. Pagination reloads visible pages from one revision, and an invalidated cursor reports a retryable error. The original execution remains accessible from the Run detail. All Trace copy uses the Agent Registry locale dictionary.
+
+Agent details include an Analytics tab with run-cohort filters, version comparison, dependency health and Trace drill-down. Missing measurements retain their coverage; runtime success is separate from answer quality.
 
 <a id="model-experience"></a>
 ## Model Experience

@@ -94,6 +94,11 @@ index 启动输入分两层。`collectIndexInjections()` 收集一张全新的�
 
 -----
 
+
+## 部署访问策略
+
+`requireAccessPolicy` 默认为 false。启用后，在部署调用 `registerAccessPolicy` 挂载策略之前，HTTP 请求与升级请求返回 503；移除策略后监听器恢复拒绝访问。策略返回 HTTP 拒绝状态码，或返回 undefined 继续正常路由。只允许挂载一个策略，且策略先于命名路由和 fallback 处理执行。WebServer 不实现身份或角色；这些决策由组装平台负责。
+
 <a id="model-experience"></a>
 ## 模型体验
 

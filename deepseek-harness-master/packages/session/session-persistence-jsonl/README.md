@@ -83,6 +83,8 @@ The current-generation scanner applies the current codec owner’s structural ad
 
 -----
 
+The exported `SessionWriteLease` also lets the Platform Runtime guard a dedicated ownership directory using the same kernel primitive. Its diagnostic identity is a Session ID; the directory must be shared by all writers on one machine and, on Windows, within one OS login session. Release the lease only after all protected work and writes have stopped.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

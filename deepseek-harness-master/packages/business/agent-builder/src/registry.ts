@@ -1,14 +1,17 @@
 /** Durable resource ownership and editable drafts, separate from executable Presets. */
+import { platformActor } from './principal-context.ts'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain, DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import { agentResourcesSchema } from './resource-schema.ts'
 import { inputSchema, tokenSchema } from './definition.ts'
 import type { RegistryAgent, RegistryAgentId, RegistryAgentInput, RegistryPage, RegistryQuery, RegistryWorkspace } from './types.ts'
 
 /** Wire validation for editable data, excluding identity and lifecycle. */
 export const registryInputSchema = inputSchema.extend({
+  resources: agentResourcesSchema.optional(),
   description: z.string().max(2000),
   ownerTeamId: z.string().min(1).max(100),
   harnessId: z.literal('deepseek-harness'),
@@ -51,15 +54,25 @@ export class AgentRegistry {
   private creationQueue: Promise<unknown> = Promise.resolve()
   private closed = false
   private readonly operations = new Map<string, Promise<unknown>>()
-  private constructor(private readonly domain: Domain<typeof spec>, readonly workspace: RegistryWorkspace) {}
+  private constructor(private readonly domain: Domain<typeof spec>, readonly workspace: RegistryWorkspace,
+    private readonly workspaceLookup?: (id: string) => RegistryWorkspace) {}
 
   /** Open durable resource data; caller must close before releasing storage.
    * @param storage - mounted storage domain facility.
    * @param workspace - Host-owned organization scope.
+   * @param workspaceLookup - optional governed workspace resolver.
    * @returns the single Registry owner.
    */
-  static async open(storage: DomainFacility, workspace: RegistryWorkspace): Promise<AgentRegistry> {
-    return new AgentRegistry(await storage.open(spec), workspace)
+  static async open(storage: DomainFacility, workspace: RegistryWorkspace,
+    workspaceLookup?: (id: string) => RegistryWorkspace): Promise<AgentRegistry> {
+    return new AgentRegistry(await storage.open(spec), workspace, workspaceLookup)
+  }
+
+  /** Verify existing records against configured organizational workspaces.
+   * @param validate - optional durable-reference validation.
+   */
+  validateOwnership(validate?: (agent: RegistryAgent) => void): void {
+    for (const [, row] of this.domain.table('agents').entries()) { this.assertWorkspace(row.platformWorkspaceId); validate?.(publicRecord(row)) }
   }
 
   /** Drain creation and Domain writes during plugin disposal. */
@@ -87,6 +100,7 @@ export class AgentRegistry {
 
   private assertWorkspace(workspaceId: string): void {
     if (this.closed) throw new Error('Registry is closed')
+    if (this.workspaceLookup !== undefined) { this.workspaceLookup(workspaceId); return }
     if (workspaceId !== this.workspace.id) throw new RegistryError('not-found', 'Workspace not found')
   }
 
@@ -104,14 +118,16 @@ export class AgentRegistry {
 
   /** List bounded summaries in stable ID order.
    * @param query - workspace, filters and keyset pagination.
+   * @param visible - authorization filter applied before pagination.
    * @returns matching page without Prompt bodies.
    */
-  list(query: RegistryQuery): RegistryPage {
+  list(query: RegistryQuery, visible?: (agent: RegistryAgent) => boolean): RegistryPage {
     const parsed = querySchema.parse(query)
     this.assertWorkspace(parsed.workspaceId)
     const search = parsed.query?.trim().toLocaleLowerCase() ?? ''
     const records = [...this.domain.table('agents').entries()].map(([, record]) => record)
       .filter(record => record.platformWorkspaceId === parsed.workspaceId
+        && (visible === undefined || visible(publicRecord(record)))
         && (parsed.lifecycle === 'all' || record.lifecycle === parsed.lifecycle)
         && (parsed.ownerTeamId === undefined || record.ownerTeamId === parsed.ownerTeamId)
         && `${record.name} ${record.description} ${record.tags.join(' ')}`.toLocaleLowerCase().includes(search))
@@ -134,13 +150,13 @@ export class AgentRegistry {
    */
   async create(
     workspaceId: string, input: RegistryAgentInput, requestToken: string, legacyPresetId: string | null = null,
-    createdBy: 'shared-host' | 'migration' = 'shared-host',
+    createdBy: string = platformActor(),
   ): Promise<RegistryAgent> {
     this.assertWorkspace(workspaceId)
     const value = registryInputSchema.parse(input)
     tokenSchema.parse(requestToken)
-    if (value.ownerTeamId !== this.workspace.ownerTeamId) throw new RegistryError('owner-invalid', 'Owner is outside this workspace')
-    const id = brandString<RegistryAgentId>(legacyPresetId ?? `resource-${createHash('sha256').update(`${workspaceId}:shared-host:${requestToken}`).digest('hex').slice(0, 32)}`)
+    if (value.ownerTeamId !== (this.workspaceLookup?.(workspaceId) ?? this.workspace).ownerTeamId) throw new RegistryError('owner-invalid', 'Owner is outside this workspace')
+    const id = brandString<RegistryAgentId>(legacyPresetId ?? `resource-${createHash('sha256').update(`${workspaceId}:${createdBy}:${requestToken}`).digest('hex').slice(0, 32)}`)
     const fingerprint = createHash('sha256').update(JSON.stringify(value)).digest('hex')
     const operation = this.creationQueue.then(async () => {
       const previous = this.domain.table('agents').get(id)
@@ -172,11 +188,11 @@ export class AgentRegistry {
     this.get(workspaceId, id)
     const value = registryInputSchema.parse(input)
     z.number().int().positive().parse(expectedRevision)
-    if (value.ownerTeamId !== this.workspace.ownerTeamId) throw new RegistryError('owner-invalid', 'Owner is outside this workspace')
+    if (value.ownerTeamId !== (this.workspaceLookup?.(workspaceId) ?? this.workspace).ownerTeamId) throw new RegistryError('owner-invalid', 'Owner is outside this workspace')
     const record = await this.exclusive(workspaceId, id, () => this.domain.table('agents').update(brandString<RegistryAgentId>(id), (current) => {
       if (current.revision !== expectedRevision) throw new RegistryError('conflict', 'Agent changed; reload before saving')
       if (current.lifecycle === 'archived') throw new RegistryError('archived', 'Restore this Agent before editing')
-      return { ...current, ...value, revision: current.revision + 1, updatedBy: 'shared-host', updatedAt: new Date().toISOString() }
+      return { ...current, ...value, revision: current.revision + 1, updatedBy: platformActor(), updatedAt: new Date().toISOString() }
     }))
     return publicRecord(record)
   }
@@ -198,7 +214,7 @@ export class AgentRegistry {
       if (current.revision !== expectedRevision) throw new RegistryError('conflict', 'Agent changed; reload before saving')
       const now = new Date().toISOString()
       return { ...current, lifecycle, archivedAt: archived ? now : null,
-        revision: current.revision + 1, updatedBy: 'shared-host', updatedAt: now }
+        revision: current.revision + 1, updatedBy: platformActor(), updatedAt: now }
     }))
     return publicRecord(record)
   }

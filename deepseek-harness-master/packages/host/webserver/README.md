@@ -94,6 +94,11 @@ Read these when the server contract is not enough: the subsystem reference, then
 
 -----
 
+
+## Deployment access policy
+
+`requireAccessPolicy` defaults to false. When enabled, HTTP requests and upgrades receive 503 until a deployment mounts `registerAccessPolicy`; removing that policy returns the listener to refusal. A policy returns an HTTP denial status or undefined to continue normal routing. Only one policy can be mounted, and it applies before named routes and fallback handling. The WebServer does not implement identities or roles; the composing platform owns those decisions.
+
 <a id="model-experience"></a>
 ## Model Experience
 

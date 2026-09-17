@@ -37,11 +37,19 @@ Source: [`packages/acp/acp/src/index.ts:75`](../packages/acp/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-builder`
 
-Requires: `agentPresets` · `sessionController` · `llm` · `agentDefaultModel` · `storageDomain` · `agents` · `sessions` · `sessionQuery`
+Requires: `agentPresets` · `sessionController` · `llm` · `agentDefaultModel` · `storageDomain` · `agents` · `sessions` · `sessionQuery` · `tools` · `sessionPersistence`
 
 ```ts config-catalog
 /** Host-owned configuration directory. */
 interface Config {
+  /** Operator JSON price versions; rates use micro currency units per million tokens. */
+  observabilityPricesFile?: string
+  /** Delay between background analytics reconciliation passes. */
+  observabilityRefreshMs?: number
+  /** Operator-owned JSON file with user credential hashes and bootstrap workspaces. */
+  governanceFile?: string
+  /** Durable execution budgets and explicit adapter replay declarations. */
+  runtime?: Partial<RuntimePolicy>
   /** Maximum Unicode code points retained in each Trace preview. */
   tracePreviewChars?: number
   /** Host-owned persistent directory, also included in Preset discovery. */
@@ -55,9 +63,14 @@ interface Config {
   /** Human-readable owner team name. */
   ownerTeamName?: string
 }
+
+/** Fully resolved policy used by the scheduler and captured on admission. */
+export type RuntimePolicy = z.infer<typeof runtimePolicySchema>
 ```
 
-Source: [`packages/business/agent-builder/src/index.ts:32`](../packages/business/agent-builder/src/index.ts)
+Depends on: `z` (`zod`)
+
+Source: [`packages/business/agent-builder/src/index.ts:45`](../packages/business/agent-builder/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
@@ -985,6 +998,8 @@ Source: [`packages/host/open-in-app/src/index.ts:50`](../packages/host/open-in-a
 ```ts config-catalog
 /** Web server listen and response-compression config. */
 export interface Config {
+  /** Refuse all traffic until a deployment access policy is mounted. */
+  requireAccessPolicy?: boolean
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
@@ -1968,7 +1983,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session/session-persistence-jsonl/src/index.ts:88`](../packages/session/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session/session-persistence-jsonl/src/index.ts:89`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 

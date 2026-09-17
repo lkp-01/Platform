@@ -49,6 +49,15 @@
     },
     {
       "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../session/session-persistence-jsonl"
+    },
+    {
+      "path": "../../host/webserver"
     }
   ]
 }

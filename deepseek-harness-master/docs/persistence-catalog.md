@@ -600,7 +600,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:47`](../packages/plan/plan-mode/s
 'platform/run': { runId: string; agentId: string; agentVersionId: string; platformWorkspaceId: string; configHash: string; deploymentRevision: number }
 ```
 
-Source: [`packages/business/agent-builder/src/types.ts:8`](../packages/business/agent-builder/src/types.ts)
+Source: [`packages/business/agent-builder/src/types.ts:10`](../packages/business/agent-builder/src/types.ts)
 
 ### `request/*`
 

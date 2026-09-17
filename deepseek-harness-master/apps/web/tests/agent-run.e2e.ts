@@ -143,4 +143,47 @@ describe('Run lifecycle through the shipped Web composition', () => {
     await expect.poll(() => trace.getAttribute('data-trace-state'), { timeout: 10000 }).toBe('complete')
     expect((await scaffold.ctx.agentBuilder.runTraceEvents('shared', resource.id, completed.id)).trace).toEqual(facts.trace)
   }, 120_000)
+
+  it('shows blocked recovery and records an operator decision without repeating the operation', async () => {
+    const builder = scaffold.ctx.agentBuilder
+    const resource = await builder.registryCreate('shared', { name: 'Recover SRE', prompt: 'Investigate alerts', description: '', tags: [],
+      model: { provider: 'version-test', model: 'one' }, toolIds: ['project_query'], ownerTeamId: 'shared-team', harnessId: 'deepseek-harness' }, randomUUID())
+    const version = await builder.versionCreate('shared', resource.id, 1, randomUUID(), '')
+    await builder.deploymentActivate('shared', resource.id, version.id, 0, randomUUID(), 'deploy')
+    const entered = Promise.withResolvers<string>()
+    let externalCalls = 0
+    scaffold.ctx.on('tools/execute', async (exec, next) => {
+      if (exec.name !== 'project_query') return next()
+      externalCalls++
+      entered.resolve(exec.callId)
+      await new Promise<void>((resolve) => {
+        if (exec.signal.aborted) resolve()
+        else exec.signal.addEventListener('abort', () =>{  resolve() }, { once: true })
+      })
+      return next()
+    })
+    const run = await builder.runStart('shared', resource.id, 'Recover uncertain operation', randomUUID())
+    const callId = await entered.promise
+    await scaffold.close()
+    await launch()
+    await page.goto(`${scaffold.authenticatedUrl}#agents/${resource.id}/runs/${run.id}`)
+    const details = page.getByRole('region', { name: 'Run details', exact: true })
+    await expect.poll(() => details.getAttribute('data-run-status'), { timeout: 15000 }).toBe('BLOCKED')
+    await details.getByLabel('Tool call ID', { exact: true }).fill(callId)
+    await details.getByLabel('Verification evidence', { exact: true }).fill('External receipt confirms the operation completed')
+    await page.screenshot({ path: '../docs/verification/reliable-runtime-blocked.png', fullPage: true })
+    await details.getByRole('button', { name: 'Record verified outcome', exact: true }).click()
+    await expect.poll(async () => {
+      const state = await scaffold.ctx.agentBuilder.runGet('shared', resource.id, run.id)
+      return state.status === 'FAILED' ? state.error?.message : state.status
+    }, { timeout: 15000 }).toBe('SUCCEEDED')
+    await expect.poll(() => details.getAttribute('data-run-status'), { timeout: 15000 }).toBe('SUCCEEDED')
+    const recovered = await scaffold.ctx.agentBuilder.runGet('shared', resource.id, run.id)
+    expect(recovered.runtime?.attempt).toBeGreaterThanOrEqual(3)
+    expect(recovered.events.some(event => event.type === 'run.resolved')).toBe(true)
+    expect(externalCalls).toBe(1)
+    expect(model.requests).toHaveLength(1)
+    await page.screenshot({ path: '../docs/verification/reliable-runtime-recovered.png', fullPage: true })
+    expect(errors).toEqual([])
+  }, 120_000)
 })

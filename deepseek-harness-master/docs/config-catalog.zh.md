@@ -39,11 +39,19 @@ export interface AcpConfig {
 
 ## `@deepseek-ai/dsh-agent-builder`
 
-需要：`agentPresets` · `sessionController` · `llm` · `agentDefaultModel` · `storageDomain` · `agents` · `sessions` · `sessionQuery`
+需要：`agentPresets` · `sessionController` · `llm` · `agentDefaultModel` · `storageDomain` · `agents` · `sessions` · `sessionQuery` · `tools` · `sessionPersistence`
 
 ```ts config-catalog
 /** Host-owned configuration directory. */
 interface Config {
+  /** Operator JSON price versions; rates use micro currency units per million tokens. */
+  observabilityPricesFile?: string
+  /** Delay between background analytics reconciliation passes. */
+  observabilityRefreshMs?: number
+  /** Operator-owned JSON file with user credential hashes and bootstrap workspaces. */
+  governanceFile?: string
+  /** Durable execution budgets and explicit adapter replay declarations. */
+  runtime?: Partial<RuntimePolicy>
   /** Maximum Unicode code points retained in each Trace preview. */
   tracePreviewChars?: number
   /** Host-owned persistent directory, also included in Preset discovery. */
@@ -57,9 +65,12 @@ interface Config {
   /** Human-readable owner team name. */
   ownerTeamName?: string
 }
+
+/** Fully resolved policy used by the scheduler and captured on admission. */
+export type RuntimePolicy = z.infer<typeof runtimePolicySchema>
 ```
 
-来源：[`packages/business/agent-builder/src/index.ts:32`](../packages/business/agent-builder/src/index.ts)
+来源：[`packages/business/agent-builder/src/index.ts:41`](../packages/business/agent-builder/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
@@ -241,7 +252,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/api/session-controller/src/index.ts:69`](../packages/api/session-controller/src/index.ts)
+来源：[`packages/api/session-controller/src/index.ts:71`](../packages/api/session-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-settings-controller"></a>
 
@@ -324,7 +335,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-bash-local`
 
-需要：`subprocess`
+需要：`fs` · `sandboxPolicy` · `sessions` · `typert`
 
 ```ts config-catalog
 /** Plugin config (all optional — `static Config` supplies the defaults). */
@@ -350,7 +361,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
-需要：`subprocess` · `sandbox` · `sandboxPolicy`
+需要：`subprocess`
 
 ```ts config-catalog
 /**
@@ -371,7 +382,7 @@ export type Config = LocalConfig
 
 ## `@deepseek-ai/dsh-client-connection`
 
-需要：`credentials`
+需要：`subprocess` · `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
 /** Browser authentication, request limits, and connection recovery configuration. */
@@ -417,7 +428,7 @@ export interface ConnectionRecoveryConfig {
 
 ## `@deepseek-ai/dsh-client-hmr`
 
-需要：`clientModules` · `webServer`
+需要：`credentials`
 
 ```ts config-catalog
 /** Plugin config, validated by the same-named schemastery schema. */
@@ -470,7 +481,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-compaction-basic`
 
-需要：`llm` · `tokenMeter` · `sessions`
+需要：`clientModules` · `webServer`
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
@@ -516,7 +527,7 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 
 ## `@deepseek-ai/dsh-compaction-tool-result-pruner`
 
-需要：`tokenMeter`
+需要：`llm` · `tokenMeter` · `sessions`
 
 ```ts config-catalog
 /** Character-budget policy for deterministic tool-result pruning. */
@@ -536,7 +547,7 @@ export interface ToolResultPruneConfig {
 
 ## `@deepseek-ai/dsh-cordis-host-runner`
 
-需要：`tools`
+需要：`tokenMeter`
 
 ```ts config-catalog
 /** Runner configuration. */
@@ -590,7 +601,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-agent-team`
 
-需要：`agents` · `sessions` · `sessionPersistence` · `sessionProjections` · `subagents`
+需要：`tools`
 
 ```ts config-catalog
 /** Team-service deployment limits. */
@@ -681,7 +692,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-inspector`
 
-需要：`webServer`
+需要：`agents` · `sessions` · `sessionPersistence` · `sessionProjections` · `subagents`
 
 ```ts config-catalog
 /** Host plugin configuration. Fetch capture is enabled by default. */
@@ -749,7 +760,7 @@ export interface InspectorOptions {
 
 ## `@deepseek-ai/dsh-experimental-tool-agent-team`
 
-需要：`agents` · `agentTeams` · `tools` · `systemPrompt`
+需要：`webServer`
 
 ```ts config-catalog
 /** Tool routing configuration. */
@@ -767,7 +778,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-file-reference-local`
 
-需要：`agents` · `sessionProjections`
+需要：`agents` · `agentTeams` · `tools` · `systemPrompt`
 
 ```ts config-catalog
 /** Local file-reference discovery configuration. */
@@ -806,7 +817,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-fs-sandbox`
 
-需要：`sandboxPolicy`
+需要：`agents`
 
 ```ts config-catalog
 /**
@@ -826,7 +837,7 @@ export type Config = LocalConfig
 
 ## `@deepseek-ai/dsh-goal`
 
-需要：`agents` · `sessionProjections`
+需要：`sandboxPolicy`
 
 ```ts config-catalog
 /** Deployment defaults for goal creation. */
@@ -842,7 +853,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-headless`
 
-需要：`agentDefaultModel` · `agents` · `sessions`
+需要：`agents` · `sessionProjections`
 
 ```ts config-catalog
 /** Plugin config: the task resolved from this app's injected provider service. */
@@ -858,7 +869,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-hooks-claude-code`
 
-需要：`shell` · `sessionProjections`
+需要：`agentDefaultModel` · `agents` · `sessions`
 
 ```ts config-catalog
 /** Plugin config: where the CC hook config lives + substitution roots. */
@@ -937,7 +948,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-host-frontend-static`
 
-需要：`webServer` · `connection`
+需要：`shell` · `sessionProjections`
 
 ```ts config-catalog
 /** Plugin config: the dist anchor. */
@@ -953,7 +964,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-host-open-in-app`
 
-需要：`webServer` · `connection` · `subprocess`
+需要：`webServer` · `connection`
 
 ```ts config-catalog
 /** Open-in-app host configuration. */
@@ -987,6 +998,8 @@ export interface Config {
 ```ts config-catalog
 /** Web server listen and response-compression config. */
 export interface Config {
+  /** Refuse all traffic until a deployment access policy is mounted. */
+  requireAccessPolicy?: boolean
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
@@ -1041,7 +1054,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-llm-deepseek`
 
-需要：`llm`
+需要：`webServer` · `connection` · `subprocess`
 
 ```ts config-catalog
 /**
@@ -1482,7 +1495,7 @@ export interface ReplayModelConfig {
 
 ## `@deepseek-ai/dsh-llm-retry`
 
-需要：`agents` · `sessionProjections`
+需要：`llm`
 
 ```ts config-catalog
 /** This policy executor has no config; providers own `retryPolicy`. */
@@ -1495,7 +1508,7 @@ export type Config = Readonly<Record<string, never>>
 
 ## `@deepseek-ai/dsh-lsp-stdio`
 
-需要：`fs` · `lsp` · `subprocess`
+需要：`agents` · `sessionProjections`
 
 ```ts config-catalog
 /** Plugin configuration: provider id → local language-server configuration. */
@@ -1537,7 +1550,7 @@ export interface LspLocalServerConfig {
 
 ## `@deepseek-ai/dsh-mcp-client`
 
-需要：`tools`
+需要：`fs` · `lsp` · `subprocess`
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -1610,7 +1623,7 @@ export interface ReconnectConfig {
 
 ## `@deepseek-ai/dsh-message-feedback`
 
-需要：`sessionPersistence` · `sessions`
+需要：`tools`
 
 ```ts config-catalog
 /** Required deployment policy for optional notes. */
@@ -1626,7 +1639,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-permission-presets`
 
-需要：`shell` · `approval` · `sessions` · `sessionProjections`
+需要：`sessionPersistence` · `sessions`
 
 ```ts config-catalog
 /** The {@link PermissionPresetService} config: preset table and composition default. */
@@ -1665,7 +1678,7 @@ export interface PresetSpec {
 
 ## `@deepseek-ai/dsh-persona`
 
-需要：`systemPrompt`
+需要：`shell` · `approval` · `sessions` · `sessionProjections`
 
 ```ts config-catalog
 /** Plugin config: the persona text this composition contributes. */
@@ -1694,7 +1707,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-plan-mode`
 
-需要：`tools` · `systemPrompt` · `sessionProjections`
+需要：`systemPrompt`
 
 ```ts config-catalog
 /** Deployment-owned plan guidance. */
@@ -1710,7 +1723,7 @@ export interface PlanModeConfig {
 
 ## `@deepseek-ai/dsh-plugin-package-inventory-deepseek`
 
-需要：`agents` · `deepseekLlmApiExtensions` · `loader`
+需要：`tools` · `systemPrompt` · `sessionProjections`
 
 ```ts config-catalog
 /** Plugin-package request contribution configuration. */
@@ -1726,7 +1739,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-pwsh-local`
 
-需要：`subprocess`
+需要：`agents` · `deepseekLlmApiExtensions` · `loader`
 
 ```ts config-catalog
 /** Plugin config (all optional — `static Config` supplies the defaults). */
@@ -1759,7 +1772,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-pwsh-sandbox`
 
-需要：`subprocess` · `sandbox` · `sandboxPolicy`
+需要：`subprocess`
 
 ```ts config-catalog
 /**
@@ -1847,7 +1860,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-sandbox-policy`
 
-需要：`sessionProjections`
+需要：`subprocess` · `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
 /**
@@ -1876,7 +1889,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-sdk-app`
 
-需要：`cmdlineArgs`
+需要：`sessionProjections`
 
 ```ts config-catalog
 /** SDK stdio startup configuration. */
@@ -1892,7 +1905,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-sdk-jsonrpc-server`
 
-需要：`agents`
+需要：`cmdlineArgs`
 
 ```ts config-catalog
 /** JSON-RPC deployment config plus runtime-only test hooks. */
@@ -1916,7 +1929,7 @@ export interface JsonRpcConfig {
 
 ## `@deepseek-ai/dsh-session-log-deepseek`
 
-需要：`deepseekLlmApiExtensions` · `sessions`
+需要：`agents`
 
 ```ts config-catalog
 /** Session-log request contribution configuration. */
@@ -1932,7 +1945,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-session-log-export`
 
-需要：`commands` · `connection`
+需要：`deepseekLlmApiExtensions` · `sessions`
 
 ```ts config-catalog
 /** Session-log archive policy. */
@@ -1970,13 +1983,13 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-来源：[`packages/session/session-persistence-jsonl/src/index.ts:88`](../packages/session/session-persistence-jsonl/src/index.ts)
+来源：[`packages/session/session-persistence-jsonl/src/index.ts:89`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
 ## `@deepseek-ai/dsh-session-projection-cache`
 
-需要：`storageDomain` · `sessionProjections` · `sessions`
+需要：`commands` · `connection`
 
 ```ts config-catalog
 /**
@@ -2000,7 +2013,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-session-query-sqlite`
 
-需要：`sessions`
+需要：`storageDomain` · `sessionProjections` · `sessions`
 
 ```ts config-catalog
 /** Combined session-query configuration backed by SQLite full-text search. */
@@ -2048,7 +2061,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 ## `@deepseek-ai/dsh-session-reference`
 
-需要：`sessionQuery`
+需要：`sessions`
 
 ```ts config-catalog
 /** Session-reference service configuration. */
@@ -2070,7 +2083,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-session-telemetry-otel`
 
-需要：`sessions`
+需要：`sessionQuery`
 
 ```ts config-catalog
 /**
@@ -2135,7 +2148,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-session-title-all-prompts-llm`
 
-需要：`sessionTitle` · `llm` · `sessions`
+需要：`sessions` · `sessionProjections`
 
 ```ts config-catalog
 /** Required LLM policy; this plugin adds no defaults. */
@@ -2213,7 +2226,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-skill-filesystem`
 
-需要：`skills`
+需要：`sessionTitle` · `llm` · `sessions`
 
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
@@ -2280,7 +2293,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-spill-policy`
 
-需要：`tools` · `sessionProjections`
+需要：`skills`
 
 ```ts config-catalog
 /** Plugin config. */
@@ -2300,7 +2313,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-storage-domain`
 
-需要：`storage`
+需要：`tools`
 
 ```ts config-catalog
 /**
@@ -2384,7 +2397,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
-需要：`subagents` · `subprocess`
+需要：`storage`
 
 ```ts config-catalog
 /** Config: how to spawn and drive the child ACP agent process. */
@@ -2505,7 +2518,7 @@ export type CodexPermissionMode =
 
 ## `@deepseek-ai/dsh-subagent-dsh-sdk`
 
-需要：`subagents`
+需要：`subagents` · `subprocess`
 
 ```ts config-catalog
 /** Config: how to spawn and drive the child SDK runtime process. */
@@ -2593,7 +2606,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-subprocess-e2b`
 
-需要：`e2b`
+需要：`subagents`
 
 ```ts config-catalog
 /** Configuration for the E2B subprocess adapter. */
@@ -2641,7 +2654,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-terminal-bash`
 
-需要：`terminals` · `sandboxPolicy` · `sessionProjections` · `subprocess`
+需要：`e2b`
 
 ```ts config-catalog
 /** Public plugin configuration. */
@@ -2691,7 +2704,7 @@ export type ShellDialect = 'bash' | 'pwsh'
 
 ## `@deepseek-ai/dsh-time-context`
 
-需要：`agents` · `sessionProjections`
+需要：`terminals` · `sandboxPolicy` · `sessionProjections` · `subprocess`
 
 ```ts config-catalog
 /** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
@@ -2703,7 +2716,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/context/time-context/src/index.ts:48`](../packages/context/time-context/src/index.ts)
+来源：[`packages/context/time-context/src/index.ts:49`](../packages/context/time-context/src/index.ts)
 
 <a id="deepseek-aidsh-tmux-context"></a>
 
@@ -2725,7 +2738,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-token-meter`
 
-需要：`sessionProjections`
+需要：`agents` · `sessionProjections`
 
 ```ts config-catalog
 /** Token-meter plugin configuration; the fixed estimator has no settings. */
@@ -2738,7 +2751,7 @@ export type TokenMeterConfig = Record<string, never>
 
 ## `@deepseek-ai/dsh-tool-bash`
 
-需要：`tools` · `shell` · `systemPrompt` · `shellEnv`
+需要：`sessionProjections`
 
 ```ts config-catalog
 /** Configuration for the bash tool. */
@@ -2754,7 +2767,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-bash-persistent`
 
-需要：`tools` · `terminals`
+需要：`tools` · `shell` · `systemPrompt` · `shellEnv`
 
 ```ts config-catalog
 /** Configuration for the persistent Bash tool. */
@@ -2776,7 +2789,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-fs`
 
-需要：`tools` · `fs` · `systemPrompt`
+需要：`tools` · `terminals`
 
 ```ts config-catalog
 /** Plugin config (all optional — `Config` supplies the defaults). */
@@ -2798,7 +2811,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-fs-search`
 
-需要：`tools` · `systemPrompt` · `subprocess`
+需要：`tools` · `fs` · `systemPrompt`
 
 ```ts config-catalog
 /** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
@@ -2833,7 +2846,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-goal`
 
-需要：`agents` · `goals` · `tools` · `systemPrompt` · `sessionProjections`
+需要：`tools` · `systemPrompt` · `subprocess`
 
 ```ts config-catalog
 /** Model policy and hard lower bounds for goal-state updates. */
@@ -2849,7 +2862,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-jobs`
 
-需要：`tools` · `jobs` · `systemPrompt`
+需要：`agents` · `goals` · `tools` · `systemPrompt` · `sessionProjections`
 
 ```ts config-catalog
 /** Configures bounded `job_output` waits and completion-notice delivery. */
@@ -2883,7 +2896,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 
 ## `@deepseek-ai/dsh-tool-lsp`
 
-需要：`tools` · `lsp` · `systemPrompt`
+需要：`tools` · `jobs` · `systemPrompt`
 
 ```ts config-catalog
 /** Plugin configuration: result caps and the timeout budget. */
@@ -2919,7 +2932,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-pwsh`
 
-需要：`tools` · `shell` · `systemPrompt` · `shellEnv`
+需要：`tools` · `lsp` · `systemPrompt`
 
 ```ts config-catalog
 /** Configuration for the pwsh tool. */
@@ -2935,7 +2948,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-pwsh-persistent`
 
-需要：`tools` · `terminals`
+需要：`tools` · `fs` · `sessionProjections`
 
 ```ts config-catalog
 /** Configuration for the persistent pwsh tool. */
@@ -2957,7 +2970,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-ralph`
 
-需要：`tools` · `workflowEngine` · `subagents` · `systemPrompt`
+需要：`tools` · `shell` · `systemPrompt` · `shellEnv`
 
 ```ts config-catalog
 /** Deployment policy for the fixed Ralph workflow. */
@@ -2979,7 +2992,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-session-query`
 
-需要：`tools` · `systemPrompt` · `sessionQuery` · `sessionProjections`
+需要：`tools` · `terminals`
 
 ```ts config-catalog
 /** Deployment-owned search count and timeout bounds. */
@@ -2997,7 +3010,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-skill`
 
-需要：`agents` · `tools` · `skills`
+需要：`tools` · `workflowEngine` · `subagents` · `systemPrompt`
 
 ```ts config-catalog
 /** Model-facing skill catalog configuration. */
@@ -3013,7 +3026,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-str-replace-editor`
 
-需要：`tools` · `fs`
+需要：`tools` · `systemPrompt` · `sessionQuery` · `sessionProjections`
 
 ```ts config-catalog
 /** Configuration for the string-replacement editor tool. */
@@ -3031,7 +3044,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
-需要：`tools` · `subagents` · `systemPrompt` · `sessionProjections`
+需要：`agents` · `tools` · `skills`
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
@@ -3101,7 +3114,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-terminal`
 
-需要：`terminals` · `tools` · `systemPrompt`
+需要：`tools` · `fs`
 
 ```ts config-catalog
 /** Model-facing terminal tool configuration. */
@@ -3119,7 +3132,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-todo`
 
-需要：`tools`
+需要：`tools` · `subagents` · `systemPrompt` · `sessionProjections`
 
 ```ts config-catalog
 /** Model-facing todo tool configuration. */
@@ -3141,7 +3154,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-web`
 
-需要：`tools` · `web` · `systemPrompt`
+需要：`terminals` · `tools` · `systemPrompt`
 
 ```ts config-catalog
 /** Plugin config: which web tools to register, search bounds, per-tool budgets, and the fetch output cap. */
@@ -3169,7 +3182,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-workflow`
 
-需要：`tools` · `workflowEngine` · `systemPrompt`
+需要：`tools` · `sessionProjections`
 
 ```ts config-catalog
 /** Config: the model-facing tool name plus result rendering caps. */
@@ -3187,7 +3200,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tools`
 
-需要：`systemPrompt`
+需要：`tools` · `web` · `systemPrompt`
 
 ```ts config-catalog
 /** Plugin config: how the registered tools are presented to the model. */
@@ -3223,7 +3236,7 @@ export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 
 ## `@deepseek-ai/dsh-typert-loader`
 
-需要：`typert` · `loader`
+需要：`tools` · `workflowEngine` · `systemPrompt`
 
 ```ts config-catalog
 /** Additional package artifacts whose owning plugins are nested behind another Loader entry. */
@@ -3291,7 +3304,7 @@ export interface WebRuntimeConfig {
 
 ## `@deepseek-ai/dsh-web-app`
 
-需要：`webServer`
+需要：`systemPrompt`
 
 ```ts config-catalog
 /** Plugin config: composed deployment settings plus per-invocation command-line values. */
@@ -3318,7 +3331,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-web-fetch-http`
 
-需要：`web`
+需要：`typert` · `loader`
 
 ```ts config-catalog
 /** Plugin config: the provider's transport and size limits plus its `User-Agent` (all defaulted). */
@@ -3342,7 +3355,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-web-search-deepseek`
 
-需要：`web`
+需要：`webServer`
 
 ```ts config-catalog
 /** Plugin config (all optional — `apply` fills env-var and constant defaults). */
@@ -3418,7 +3431,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-webhook-github`
 
-需要：`webServer` · `webhookRuntime` · `credentials`
+需要：`web`
 
 ```ts config-catalog
 /** Required GitHub ingress configuration. */
@@ -3440,7 +3453,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-workflow-worker-thread`
 
-需要：`subagents`
+需要：`web`
 
 ```ts config-catalog
 /** Plugin config (all optional — `static Config` supplies the defaults). */

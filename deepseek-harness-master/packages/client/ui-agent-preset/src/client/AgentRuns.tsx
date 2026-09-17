@@ -3,14 +3,15 @@ import { useEffect, useRef, useState } from 'react'
 import type { AgentHistoryPage, AgentVersionSummary, PlatformRun, RegistryAgent, RunStatus } from '@deepseek-ai/dsh-agent-builder/types'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { VersionActions } from './AgentVersions.tsx'
 import { RunDetails, runDuration } from './RunDetails.tsx'
 import { RunTrace } from './RunTrace.tsx'
 import css from './AgentRegistry.module.css'
 
-const statuses: RunStatus[] = ['PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED']
-const active = (run: PlatformRun) => run.status === 'PENDING' || run.status === 'RUNNING'
-type Props = Pick<VersionActions, 'runList' | 'runGet' | 'runCancel' | 'openRun' | 'runTraceEvents'> & PropsLocale<'agentRegistry'> & {
+const statuses: RunStatus[] = ['PENDING', 'RUNNING', 'RETRY_WAIT', 'RECOVERING', 'BLOCKED', 'SUCCEEDED', 'FAILED', 'CANCELLED']
+const active = (run: PlatformRun) => !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(run.status)
+type Props = Pick<VersionActions, 'runList' | 'runGet' | 'runCancel' | 'runResolve' | 'openRun' | 'runTraceEvents'> & PropsLocale<'agentRegistry'> & {
   agent: RegistryAgent
   refreshKey: number
   versions: AgentVersionSummary[]
@@ -61,10 +62,20 @@ export function AgentRuns(props: Props) {
     catch (failure) { setCancelFailed(true); setError(String(failure)) }
     finally { setBusy(false) }
   }
+  const resolve = async (callId: string, decision: 'completed' | 'not-executed', evidence: string) => {
+    if (selected === null || busy || props.runResolve === undefined) return
+    setBusy(true); setError(null)
+    try {
+      setSelected(await props.runResolve(agent.platformWorkspaceId, agent.id, selected.id, callId, decision, evidence, randomUUID()))
+      setRefresh(value => value + 1)
+    } catch (failure) { setError(String(failure)) }
+    finally { setBusy(false) }
+  }
   return <div className={css.detail}>
     {selected !== null && <div><Button variant="outline" onClick={() => { window.location.hash = `agents/${agent.id}` }}>{t('backRuns')}</Button></div>}
     {selected !== null && <RunDetails t={t} run={selected} agentName={agent.name} now={now}
       busy={busy || (selected.cancelRequestedAt !== null && !cancelFailed)} cancel={() => { void cancel() }}
+      resolve={props.runResolve === undefined ? undefined : resolve}
       openExecution={() => { props.openRun(selected) }} viewVersion={() => { void props.viewVersion(selected.agentVersionId) }} />}
     {selected !== null && <RunTrace key={selected.id} run={selected} t={t} load={props.runTraceEvents} />}
     <div className={css.filters}><label>{t('runStatus')}<select aria-label={t('runStatus')} value={status}

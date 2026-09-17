@@ -4,13 +4,17 @@ import type { PlatformRun, RunLifecycleEvent } from './types.ts'
 /** Public event vocabulary for the first Run timeline. */
 export type TraceEventType = RunLifecycleEvent['type'] | 'model.call.started' | 'model.call.completed'
   | 'model.call.failed' | 'model.call.cancelled' | 'model.retry.scheduled' | 'tool.call.started'
-  | 'tool.call.completed' | 'tool.call.failed' | 'final.answer'
+  | 'tool.call.completed' | 'tool.call.failed' | 'tool.retry.started' | 'tool.retry.completed' | 'tool.retry.failed' | 'final.answer'
+  | 'human.intervention.requested' | 'human.intervention.resolved'
 
 /** Bounded, sanitized text with explicit loss information. */
 export interface TracePreview { text: string; truncated: boolean; redacted: boolean }
 
 /** Provider accounting for one attempt; input includes cache tokens when an exact total is available. */
-export interface TraceUsage { inputTokens: number | null; outputTokens: number; totalTokens: number | null }
+export interface TraceUsage {
+  inputTokens: number | null; outputTokens: number; totalTokens: number | null
+  uncachedInputTokens?: number | undefined; cacheReadTokens?: number | undefined; cacheWriteTokens?: number | undefined
+}
 
 /** One immutable timeline fact, linked to either a Session event or a platform observation. */
 export interface TraceEvent {
@@ -20,6 +24,8 @@ export interface TraceEvent {
   sourceSeq: number | null
   sourceRunEventId: string | null
   operationId: string | null
+  attemptId?: string | undefined; attemptNumber?: number | undefined; actorId?: string | undefined; interventionId?: string | undefined
+  dispatched?: boolean | undefined
   turn: number | null
   step: number | null
   provider: string | null

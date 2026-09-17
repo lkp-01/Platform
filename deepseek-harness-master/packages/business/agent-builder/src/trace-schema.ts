@@ -6,13 +6,18 @@ import type { RunTrace, TraceEvent, TraceModelStart } from './trace-types.ts'
 
 const text = z.string().nullable()
 const count = z.number().int().nonnegative()
-const usage = z.object({ inputTokens: count.nullable(), outputTokens: count, totalTokens: count.nullable() })
+const usage = z.object({ inputTokens: count.nullable(), outputTokens: count, totalTokens: count.nullable(),
+  uncachedInputTokens: count.optional(), cacheReadTokens: count.optional(), cacheWriteTokens: count.optional() })
 const preview = z.object({ text: z.string(), truncated: z.boolean(), redacted: z.boolean() })
 const event = z.object({
   eventId: z.string(), type: z.enum(['run.created', 'run.started', 'run.succeeded', 'run.failed', 'run.cancelled',
+    'run.recovering', 'run.retry-scheduled', 'run.blocked', 'run.cancel-requested', 'run.resolved',
     'model.call.started', 'model.call.completed', 'model.call.failed', 'model.call.cancelled', 'model.retry.scheduled',
-    'tool.call.started', 'tool.call.completed', 'tool.call.failed', 'final.answer']),
+    'tool.call.started', 'tool.call.completed', 'tool.call.failed', 'tool.retry.started', 'tool.retry.completed', 'tool.retry.failed', 'final.answer',
+    'human.intervention.requested', 'human.intervention.resolved']),
   occurredAt: z.iso.datetime(), sourceSeq: count.nullable(), sourceRunEventId: text, operationId: text,
+  attemptId: z.string().optional(), attemptNumber: count.optional(), actorId: z.string().optional(), interventionId: z.string().optional(),
+  dispatched: z.boolean().optional(),
   turn: count.nullable(), step: count.nullable(), provider: text, model: text, tool: text, durationMs: count.nullable(),
   preview: preview.nullable(), usage: usage.nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(), incomplete: z.boolean(),

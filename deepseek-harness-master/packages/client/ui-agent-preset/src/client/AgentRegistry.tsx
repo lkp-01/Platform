@@ -1,14 +1,17 @@
+import { AgentAnalytics, type AnalyticsActions } from './AgentAnalytics.tsx'
 /** Platform resource list, detail and current-draft editor. */
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AgentDefinition, RegistryAgent, RegistryAgentInput, RegistryCatalog, RegistryPage, RegistryQuery } from '@deepseek-ai/dsh-agent-builder/types'
+import { ResourcePicker } from './ResourcePicker.tsx'
+import type { AgentResources, SharedResource } from '@deepseek-ai/dsh-agent-builder/types'
 import css from './AgentRegistry.module.css'
 import { AgentVersionsPanel, type VersionActions } from './AgentVersions.tsx'
 
 /** Apply-owned transport, shared by all Registry views. */
-export interface RegistryActions extends VersionActions {
+export interface RegistryActions extends VersionActions, Partial<AnalyticsActions> {
   catalog(): Promise<RegistryCatalog>
   list(query: RegistryQuery): Promise<RegistryPage>
   get(workspaceId: string, id: string): Promise<RegistryAgent>
@@ -18,7 +21,19 @@ export interface RegistryActions extends VersionActions {
 }
 
 type Props = RegistryActions & PropsLocale<'agentRegistry'>
-type Tab = 'overview' | 'configuration' | 'versions' | 'runs'
+type Tab = 'overview' | 'configuration' | 'versions' | 'runs' | 'analytics'
+
+function resourceRefs(rows: SharedResource[], model: { provider: string; model: string }, tools: string[]): AgentResources | undefined {
+  const candidates = rows.filter(row => row.status === 'active')
+  const chosen = candidates.find(row => row.versions.some(version => version.spec.kind === 'model' && version.spec.provider === model.provider && version.spec.model === model.model))
+  const version = chosen?.versions.find(version => version.spec.kind === 'model' && version.spec.provider === model.provider && version.spec.model === model.model)
+  if (chosen === undefined || version === undefined) return undefined
+  return { model: { resourceId: chosen.id, versionId: version.id }, tools: tools.flatMap((operation) => {
+    const row = candidates.find(row => row.versions[0]?.spec.kind === 'tool' && row.versions[0].spec.operation === operation)
+    const first = row?.versions[0]
+    return row === undefined || first === undefined ? [] : [{ resourceId: row.id, versionId: first.id }]
+  }), skills: [] }
+}
 
 function selectedId(): string | null {
   const match = /^#agents\/([a-zA-Z0-9-]+)(?:\/runs\/[a-zA-Z0-9-]+)?$/.exec(window.location.hash)
@@ -27,6 +42,7 @@ function selectedId(): string | null {
 
 function editable(value: RegistryAgentInput): RegistryAgentInput {
   return { name: value.name, description: value.description, ownerTeamId: value.ownerTeamId, harnessId: value.harnessId,
+    ...(value.resources === undefined ? {} : { resources: value.resources }),
     model: { ...value.model }, prompt: value.prompt, toolIds: [...value.toolIds], tags: [...value.tags] }
 }
 
@@ -94,7 +110,7 @@ export function AgentRegistryPanel(props: Props) {
     token.current = randomUUID()
     setTagsText('')
     setDraft({ name: template?.name ?? '', description: '', ownerTeamId: catalog.workspace.ownerTeamId,
-      harnessId: 'deepseek-harness', model: { ...model }, prompt: template?.prompt ?? '', toolIds: [...(template?.toolIds ?? [])], tags: [] })
+      harnessId: 'deepseek-harness', resources: resourceRefs(catalog.resources, model, template?.toolIds ?? []), model: { ...model }, prompt: template?.prompt ?? '', toolIds: [...(template?.toolIds ?? [])], tags: [] })
     setError(null); setNotice(null)
   }
   const change = (patch: Partial<RegistryAgentInput>) => {
@@ -126,6 +142,14 @@ export function AgentRegistryPanel(props: Props) {
   const unchangedModel = agent !== null && draft?.model.provider === agent.model.provider && draft.model.model === agent.model.model
   const valid = draft !== null && draft.name.trim().length > 0 && draft.prompt.trim().length > 0 && (modelIndex >= 0 || unchangedModel)
   const owner = catalog?.workspace.ownerTeamName ?? ''
+  const selectResources = (resources: AgentResources) => {
+    const model = catalog?.resources.flatMap(row => row.versions).find(row => row.id === resources.model.versionId)?.spec
+    const tools = resources.tools.flatMap((ref) => {
+      const spec = catalog?.resources.flatMap(row => row.versions).find(row => row.id === ref.versionId)?.spec
+      return spec?.kind === 'tool' ? [spec.operation] : []
+    })
+    if (model?.kind === 'model') change({ resources, model: { provider: model.provider, model: model.model }, toolIds: tools })
+  }
   return <main className={css.panel} aria-label={t('title')}>
     <header className={css.header}><div><div className={css.eyebrow}>{t('workspace')} / {catalog?.workspace.name ?? '—'}</div>
       <h1>{draft !== null ? (agent === null ? t('create') : t('edit')) : id === null ? t('title') : agent?.name ?? t('loading')}</h1>
@@ -144,18 +168,19 @@ export function AgentRegistryPanel(props: Props) {
           <label>{t('owner')}<select value={draft.ownerTeamId} onChange={(event) => { change({ ownerTeamId: event.target.value }) }}><option value={catalog?.workspace.ownerTeamId}>{owner}</option></select></label></div>
         <label>{t('description')}<textarea aria-label={t('description')} rows={2} maxLength={2000} value={draft.description} onChange={(event) => { change({ description: event.target.value }) }} /></label>
         <div className={css.columns}><label>{t('harness')}<select value={draft.harnessId} disabled><option value="deepseek-harness">{t('deepseek')}</option></select></label>
-          <label>{t('model')}<select aria-label={t('model')} required={!unchangedModel} value={modelIndex < 0 ? '' : String(modelIndex)} onChange={(event) => {
+          {draft.resources === undefined && <label>{t('model')}<select aria-label={t('model')} required={!unchangedModel} value={modelIndex < 0 ? '' : String(modelIndex)} onChange={(event) => {
             const model = models[Number(event.target.value)]
-            if (model !== undefined) change({ model: { provider: model.provider, model: model.id } })
+            if (model !== undefined) change({ model: { provider: model.provider, model: model.id },
+              resources: resourceRefs(catalog?.resources ?? [], { provider: model.provider, model: model.id }, draft.toolIds) })
           }}><option value="">{unchangedModel ? `${draft.model.model} — ${t('unavailableModel')}` : t('model')}</option>
-            {models.map((model, index) => <option key={`${model.provider}/${model.id}`} value={index}>{model.provider} / {model.name}</option>)}</select></label></div>
+            {models.map((model, index) => <option key={`${model.provider}/${model.id}`} value={index}>{model.provider} / {model.name}</option>)}</select></label>}</div>
         {models.length === 0 && <p>{t('noModels')}</p>}
         <label>{t('prompt')}<textarea aria-label={t('prompt')} required rows={9} maxLength={32000} value={draft.prompt} onChange={(event) => { change({ prompt: event.target.value }) }} /></label>
         <label>{t('tags')}<input aria-label={t('tags')} maxLength={819} value={tagsText} onChange={(event) => { setTagsText(event.target.value); token.current = randomUUID() }} /></label>
-        <div className={css.toolGrid}>{catalog?.tools.map(tool => <label key={tool.id} className={css.tool}><input type="checkbox" checked={draft.toolIds.includes(tool.id)}
+        {draft.resources !== undefined && catalog !== null ? <ResourcePicker t={t} rows={catalog.resources} value={draft.resources} change={selectResources} /> : <div className={css.toolGrid}>{catalog?.tools.map(tool => <label key={tool.id} className={css.tool}><input type="checkbox" checked={draft.toolIds.includes(tool.id)}
           onChange={(event) => { change({ toolIds: event.target.checked
             ? [...draft.toolIds, tool.id] : draft.toolIds.filter(id => id !== tool.id) }) }} />
-        <span><strong>{tool.id}</strong><small>{tool.description}</small></span></label>)}</div>
+        <span><strong>{tool.id}</strong><small>{tool.description}</small></span></label>)}</div>}
         <div className={css.actions}><Button variant="outline" onClick={() => { setDraft(null); setError(null) }}>{t('cancel')}</Button>
           {agent !== null && <Button variant="outline" onClick={() => { setDraft(null); setRefresh(value => value + 1) }}>{t('reload')}</Button>}
           <Button type="submit" disabled={!valid}>{busy ? t('saving') : agent === null ? t('create') : t('save')}</Button></div>
@@ -182,11 +207,11 @@ export function AgentRegistryPanel(props: Props) {
       </article>)}</div></section>
     </> : agent !== null ? <>
       <div className={css.actions}><span className={css.badge}>{t(agent.lifecycle)}</span>
-        <Button variant="outline" disabled={busy || loading || agent.lifecycle === 'archived'} onClick={() => { setDraft(editable(agent)); setTagsText(agent.tags.join(', ')); setError(null); setNotice(null) }}>{t('edit')}</Button>
+        <Button variant="outline" disabled={busy || loading || agent.lifecycle === 'archived'} onClick={() => { setDraft({ ...editable(agent), resources: agent.resources ?? resourceRefs(catalog?.resources ?? [], agent.model, agent.toolIds) }); setTagsText(agent.tags.join(', ')); setError(null); setNotice(null) }}>{t('edit')}</Button>
         <Button variant="outline" disabled={busy || loading} onClick={() => { void archive() }}>{agent.lifecycle === 'archived' ? t('restore') : t('archive')}</Button>
         <Button variant="outline" onClick={() => { void navigator.clipboard.writeText(window.location.href).then(() => { setNotice(t('copied')) }, (failure: unknown) => { setError(String(failure)) }) }}>{t('copiedLink')}</Button></div>
       {agent.lifecycle === 'archived' && <p className={css.scope}>{t('archivedHint')}</p>}
-      <nav className={css.tabs} aria-label={t('details')}>{(['overview', 'configuration', 'versions', 'runs'] as const).map(value =>
+      <nav className={css.tabs} aria-label={t('details')}>{(['overview', 'configuration', 'versions', 'runs', ...(props.observabilityQuery ? ['analytics' as const] : [])] as const).map(value =>
         <button key={value} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value) }}>{t(value)}</button>)}</nav>
       {tab === 'overview' && <section className={css.detail}><p>{agent.description || '—'}</p><dl>
         <dt>{t('identifier')}</dt><dd>{agent.id}</dd><dt>{t('owner')}</dt><dd>{owner}</dd><dt>{t('harness')}</dt><dd>{t('deepseek')}</dd>
@@ -198,6 +223,7 @@ export function AgentRegistryPanel(props: Props) {
         {!models.some(model => model.provider === agent.model.provider && model.id === agent.model.model) && <p>{t('unavailableModel')}</p>}
         {agent.toolIds.some(tool => !catalog?.tools.some(choice => choice.id === tool)) && <p>{t('unavailableTools')}</p>}
         <h3>{t('prompt')}</h3><pre className={css.prompt}>{agent.prompt}</pre></section>}
+      {tab === 'analytics' && props.observabilityQuery && props.observabilityRuns && <AgentAnalyticsLoader {...props} agent={agent} />}
       {(tab === 'overview' || tab === 'versions' || tab === 'runs') && <AgentVersionsPanel key={agent.id} {...props} agent={agent} mode={tab} />}
     </> : loading ? <p role="status">{t('loading')}</p> : null}
   </main>
@@ -205,3 +231,19 @@ export function AgentRegistryPanel(props: Props) {
 
 /** Registry navigation mark, labelled by its sidebar registration. */
 export function RegistryIcon() { return <span aria-hidden="true">▦</span> }
+
+function AgentAnalyticsLoader(props: Props & { agent: RegistryAgent }) {
+  const [versions, setVersions] = useState<import('@deepseek-ai/dsh-agent-builder/types').AgentVersionSummary[]>([])
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const rows: import('@deepseek-ai/dsh-agent-builder/types').AgentVersionSummary[] = []
+      let cursor: number | null = 0
+      while (cursor !== null) { const page = await props.versionList(props.agent.platformWorkspaceId, props.agent.id, cursor); rows.push(...page.items); cursor = page.nextCursor }
+      if (alive) setVersions(rows)
+    })().catch(() => { if (alive) setVersions([]) })
+    return () => { alive = false }
+  }, [props.agent.id, props.agent.platformWorkspaceId, props.versionList])
+  return <AgentAnalytics workspace={props.agent.platformWorkspaceId} agentId={props.agent.id} versions={versions} t={props.t}
+    observabilityQuery={props.observabilityQuery!} observabilityRuns={props.observabilityRuns!} />
+}

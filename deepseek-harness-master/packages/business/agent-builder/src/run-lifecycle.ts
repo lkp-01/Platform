@@ -19,11 +19,14 @@ export function isRunTerminal(status: RunStatus): boolean {
  * @returns immutable next record; terminal or duplicate transitions are ignored.
  */
 export function transitionRun(row: RunRecord, status: RunStatus, at: string, patch: Partial<RunRecord> = {}): RunRecord {
-  if (isRunTerminal(row.status) || row.status === status) return row
+  if (isRunTerminal(row.status)) return row
+  if (row.status === status) return { ...row, ...patch }
   if (status === 'PENDING' || (status === 'SUCCEEDED' && row.status !== 'RUNNING')) throw new Error(`Invalid Run transition ${row.status} -> ${status}`)
-  const type = { RUNNING: 'run.started', SUCCEEDED: 'run.succeeded', FAILED: 'run.failed', CANCELLED: 'run.cancelled' } as const
+  const type = { RUNNING: 'run.started', SUCCEEDED: 'run.succeeded', FAILED: 'run.failed', CANCELLED: 'run.cancelled',
+    RECOVERING: 'run.recovering', RETRY_WAIT: 'run.retry-scheduled', BLOCKED: 'run.blocked' } as const
   return { ...row, ...patch, status,
-    ...(status === 'RUNNING' ? { startedAt: at } : { finishedAt: at, finishTimeSource: patch.finishTimeSource ?? 'execution' }),
+    ...(status === 'RUNNING' ? { startedAt: row.startedAt ?? at }
+      : isRunTerminal(status) ? { finishedAt: at, finishTimeSource: patch.finishTimeSource ?? 'execution' } : {}),
     events: [...row.events, { eventId: `${row.id}:${row.events.length}`, runId: row.id, agentId: row.agentId,
       agentVersionId: row.agentVersionId, sessionId: row.sessionId, type: type[status], occurredAt: at }],
   }
@@ -55,11 +58,18 @@ export function projectRun(source: RunRecord, events: readonly SessionEvent[], d
       row = { ...row, input: { prompt: event.data.content.filter(block => block.type === 'text').map(block => block.text).join('\n') } }
     }
     if (event.type === 'turn/end') {
-      const end = outcome(event.data.reason)
+      const end = row.runtime !== undefined && row.cancelRequestedAt !== null && event.time >= Date.parse(row.cancelRequestedAt)
+        ? { status: 'CANCELLED' as const, error: null } : outcome(event.data.reason)
+      if (row.runtime !== undefined && end.error?.code === 'EXECUTION_INTERRUPTED') {
+        row = transitionRun(row, 'RECOVERING', detectedAt, { error: end.error })
+        row = { ...row, lastSessionSeq: event.seq }
+        continue
+      }
       const interrupted = event.data.reason.kind === 'interrupted'
       const text = final?.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('\n') ?? ''
       row = transitionRun(row, end.status, interrupted ? detectedAt : at, { error: end.error,
         finishTimeSource: interrupted ? 'detected' : 'execution',
+        // oxlint-disable-next-line typescript/no-misused-spread -- Preview budget is explicitly Unicode code points.
         result: end.status === 'SUCCEEDED' ? { textPreview: text.length === 0 ? null : [...text].slice(0, 4000).join(''),
           sessionId: row.sessionId, finalMessageSeq: final?.seq ?? null } : null,
       })

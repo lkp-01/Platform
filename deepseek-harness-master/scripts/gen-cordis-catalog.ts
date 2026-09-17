@@ -690,6 +690,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  IncomingMessage: 'Node.js HTTP request contract is owned by node:http documentation',
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
@@ -702,6 +703,11 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentDefinition: 'immutable business definition is owned by packages/business/agent-builder/README.md',
   AgentDefinitionInput: 'business authoring input is owned by packages/business/agent-builder/README.md',
   AgentBuilderCatalog: 'business authoring choices are owned by packages/business/agent-builder/README.md',
+  SharedResource: 'shared resource metadata is owned by packages/business/agent-builder/README.md#shared-resources',
+  ResourceInput: 'resource draft configuration is owned by packages/business/agent-builder/README.md#shared-resources',
+  ResourceVersion: 'published resource configuration is owned by packages/business/agent-builder/README.md#shared-resources',
+  ResourceStatus: 'shared resource availability is owned by packages/business/agent-builder/README.md#shared-resources',
+  ResourceUsage: 'resource consumer projection is owned by packages/business/agent-builder/README.md#shared-resources',
   RegistryAgent: 'platform resource fields are owned by packages/business/agent-builder/README.md#resource-registry',
   RegistryAgentInput: 'current draft input is owned by packages/business/agent-builder/README.md#resource-registry',
   RegistryCatalog: 'shared organization catalog is owned by packages/business/agent-builder/README.md#resource-registry',
@@ -714,6 +720,9 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   PlatformRun: 'version-bound Runs are owned by packages/business/agent-builder/README.md',
   RunTrace: 'Run trace summaries are owned by packages/business/agent-builder/README.md',
   RunTracePage: 'Run trace pages are owned by packages/business/agent-builder/README.md',
+  ObservationQuery: 'Analytics filters are owned by packages/business/agent-builder/README.md',
+  ObservationReport: 'Analytics reports are owned by packages/business/agent-builder/README.md',
+  ObservationRunPage: 'Analytics drill-down pages are owned by packages/business/agent-builder/README.md',
   RunStatus: 'platform Run lifecycle states are owned by packages/business/agent-builder/README.md',
   AgentPresetComposition: 'flattened composition rows are owned by packages/preset/agent-presets/README.md',
   PresetMetadata: 'preset display text is owned by packages/preset/agent-presets/README.md',

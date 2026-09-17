@@ -3,6 +3,7 @@ import { lastAssistantStreamChunk } from '@deepseek-ai/dsh-llm'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { PlatformRun } from './types.ts'
+import type { PlatformRuns } from './platform-runs.ts'
 import type { RunTrace, TraceEvent, TraceModelStart, TracePreview, TraceUsage } from './trace-types.ts'
 
 /** Sanitize a bounded preview without changing the original Session record.
@@ -29,7 +30,10 @@ function usageOf(usage: TokenUsage | undefined): TraceUsage | null {
     ?? (usage.cacheReadTokens !== undefined && usage.cacheWriteTokens !== undefined ? known + usage.outputTokens : null)
   if (total !== null && (!count(total) || total < known + usage.outputTokens
     || (usage.cacheReadTokens !== undefined && usage.cacheWriteTokens !== undefined && total !== known + usage.outputTokens))) total = null
-  return { inputTokens: total === null ? null : total - usage.outputTokens, outputTokens: usage.outputTokens, totalTokens: total }
+  return { inputTokens: total === null ? null : total - usage.outputTokens, outputTokens: usage.outputTokens, totalTokens: total,
+    uncachedInputTokens: usage.inputTokens,
+    ...(usage.cacheReadTokens === undefined ? {} : { cacheReadTokens: usage.cacheReadTokens }),
+    ...(usage.cacheWriteTokens === undefined ? {} : { cacheWriteTokens: usage.cacheWriteTokens }) }
 }
 
 /** Build a deterministic timeline; replay replaces facts rather than incrementing counters.
@@ -37,10 +41,12 @@ function usageOf(usage: TokenUsage | undefined): TraceUsage | null {
  * @param events - original Session events in source order.
  * @param starts - persisted platform timing observations.
  * @param previewLimit - configured maximum preview characters.
+ * @param tools - durable tool attempts made during recovery.
  * @returns source-ordered facts and summary without a storage revision.
  */
 export function projectTrace(
   run: PlatformRun, events: readonly SessionEvent[], starts: readonly TraceModelStart[], previewLimit: number,
+  tools: ReturnType<PlatformRuns['toolHistory']> = [],
 ): { items: TraceEvent[]; trace: RunTrace } {
   const rows: { order: number; event: TraceEvent }[] = []
   const add = (order: number, fields: Pick<TraceEvent, 'eventId' | 'type' | 'occurredAt'> & Partial<TraceEvent>) => {
@@ -51,8 +57,23 @@ export function projectTrace(
   const used = new Set<string>()
   const calls = new Map<string, TraceEvent>()
   let route: { provider: string; model: string } | null = null
-  const terminal = run.status !== 'PENDING' && run.status !== 'RUNNING'
+  const terminal = run.status === 'SUCCEEDED' || run.status === 'FAILED' || run.status === 'CANCELLED'
   const lastSeq = events.at(-1)?.seq ?? -1
+  const recordedTools = new Set(tools.filter(tool => tool.history.length > 0).map(tool => tool.callId))
+  for (const tool of tools) for (const attempt of tool.history) {
+    const id = `${tool.id}:attempt:${attempt.attempt}`
+    const order = events.findLast(event => event.time <= Date.parse(attempt.startedAt))?.seq ?? lastSeq
+    add(order + 0.6, { eventId: `${id}:start`, type: attempt.attempt === 1 ? 'tool.call.started' : 'tool.retry.started', occurredAt: attempt.startedAt,
+      operationId: tool.id, attemptId: id, attemptNumber: attempt.attempt, tool: tool.name,
+      dispatched: true, preview: tracePreview(tool.arguments, previewLimit), incomplete: attempt.finishedAt === null })
+    if (attempt.finishedAt !== null) add(order + 0.7, { eventId: `${id}:end`,
+      type: attempt.attempt === 1 ? (attempt.outcome === 'succeeded' ? 'tool.call.completed' : 'tool.call.failed')
+        : attempt.outcome === 'succeeded' ? 'tool.retry.completed' : 'tool.retry.failed', occurredAt: attempt.finishedAt,
+      operationId: tool.id, attemptId: id, attemptNumber: attempt.attempt, tool: tool.name, dispatched: true,
+      error: attempt.outcome === 'failed' ? { code: attempt.errorCode ?? 'UNKNOWN', message: attempt.errorCode ?? 'UNKNOWN' } : null,
+      preview: attempt.attempt === tool.attempt && tool.result !== null ? tracePreview(tool.result, previewLimit) : null,
+      incomplete: attempt.outcome === 'unknown', durationMs: Math.max(0, Date.parse(attempt.finishedAt) - Date.parse(attempt.startedAt)) })
+  }
   for (const start of starts) add(start.afterSeq + 0.5, { eventId: start.id, type: 'model.call.started', occurredAt: start.occurredAt,
     operationId: start.id, turn: start.turn, step: start.step, provider: start.provider, model: start.model })
   for (const event of events) {
@@ -79,17 +100,21 @@ export function projectTrace(
       })
     }
     if (event.type === 'tool/call') {
+      if (recordedTools.has(event.data.callId)) continue
       const key = `${event.data.turn}:${event.data.step}:${event.data.callId}`
       const row = add(event.seq, { ...base, type: 'tool.call.started', operationId: `${run.id}:tool:${key}`,
+        ...(run.runtime === undefined ? {} : { dispatched: false }),
         turn: event.data.turn, step: event.data.step, tool: event.data.name, preview: tracePreview(event.data.arguments, previewLimit) })
       calls.set(key, row)
     }
     if (event.type === 'tool/result') {
       const block = event.data.message.content[0]
+      if (recordedTools.has(block.toolCallId)) continue
       const key = `${event.data.turn}:${event.data.step}:${block.toolCallId}`
       const call = calls.get(key)
       const repaired = event.data.error?.code === 'TOOL_OUTCOME_UNKNOWN' || event.data.error?.code === 'TOOL_NOT_STARTED'
       add(event.seq, { ...base, type: block.isError ? 'tool.call.failed' : 'tool.call.completed', operationId: call?.operationId ?? `${run.id}:tool:${key}`,
+        ...(run.runtime === undefined ? {} : { dispatched: false }),
         turn: event.data.turn, step: event.data.step, tool: call?.tool ?? null, incomplete: repaired || call === undefined,
         durationMs: call === undefined || repaired ? null : Math.max(0, event.time - Date.parse(call.occurredAt)),
         preview: tracePreview(block.content.filter(item => item.type === 'text').map(item => item.text).join('\n'), previewLimit),
@@ -109,6 +134,14 @@ export function projectTrace(
     add(order, { eventId: `${event.eventId}:lifecycle`, type: event.type, occurredAt: event.occurredAt, sourceRunEventId: event.eventId,
       error: event.type === 'run.failed' && run.error !== null ? { code: run.error.code, message: tracePreview(run.error.message, previewLimit).text } : null,
       incomplete: event.type === 'run.failed' && run.finishTimeSource === 'detected' })
+    if (event.type === 'run.blocked' || event.type === 'run.resolved') add(order + 0.1, {
+      eventId: `${event.eventId}:intervention`, sourceRunEventId: event.eventId,
+      type: event.type === 'run.blocked' ? 'human.intervention.requested' : 'human.intervention.resolved',
+      occurredAt: event.occurredAt,
+      ...(event.actorId === undefined ? {} : { actorId: event.actorId }),
+      ...(event.type === 'run.blocked' ? { interventionId: event.eventId }
+        : event.interventionId === undefined ? {} : { interventionId: event.interventionId }),
+    })
   }
   if (run.status === 'SUCCEEDED' && run.result?.textPreview) {
     const final = events.find(event => event.seq === run.result?.finalMessageSeq)
@@ -128,7 +161,7 @@ export function projectTrace(
   const incomplete = items.some(item => item.incomplete) || (terminal && (calls.size > 0 || used.size < starts.length))
   return { items, trace: { runId: run.id, sessionId: run.sessionId, agentId: run.agentId, agentVersionId: run.agentVersionId,
     platformWorkspaceId: run.platformWorkspaceId, revision: '', state: terminal ? incomplete ? 'partial' : 'complete' : 'pending',
-    eventCount: items.length, modelCalls, toolCalls: items.filter(item => item.type === 'tool.call.started').length,
+    eventCount: items.length, modelCalls, toolCalls: items.filter(item => item.type === 'tool.call.started' || item.type === 'tool.retry.started').length,
     inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens'), totalTokens: sum('totalTokens'),
     usageComplete: modelCalls > 0 && modelCalls === usages.length && usages.every(item => item.totalTokens !== null) && sum('totalTokens') !== null } }
 }

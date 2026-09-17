@@ -1,0 +1,19 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Shared Resources in the shipped Web composition > registers a Skill, selects shared versions, runs pinned content and blocks disabled resources 1`] = `
+{
+  "bindings": [
+    {
+      "name": "incident-triage",
+      "spec": {
+        "content": "Collect evidence before drawing conclusions.",
+        "kind": "skill",
+      },
+      "version": 1,
+    },
+  ],
+  "tools": [
+    "order_query",
+  ],
+}
+`;

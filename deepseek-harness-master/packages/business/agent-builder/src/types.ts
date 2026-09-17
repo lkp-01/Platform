@@ -1,3 +1,5 @@
+import type { AgentResources, ResourceManifest, SharedResource } from './resource-types.ts'
+export type * from './resource-types.ts'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ModelCatalog, ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -62,6 +64,7 @@ export type RegistryAgentId = string & Branded<'RegistryAgentId'>
 
 /** Editable resource fields; only the current draft is retained. */
 export interface RegistryAgentInput extends AgentDefinitionInput {
+  resources?: AgentResources | undefined
   description: string
   ownerTeamId: string
   harnessId: 'deepseek-harness'
@@ -118,11 +121,12 @@ export interface RegistryWorkspace {
   name: string
   ownerTeamId: string
   ownerTeamName: string
-  accessMode: 'shared-host'
+  accessMode: 'shared-host' | 'governed'
 }
 
 /** Authoring choices and migration diagnostics, independent of execution history. */
 export interface RegistryCatalog extends AgentBuilderCatalog {
+  resources: SharedResource[]
   workspace: RegistryWorkspace
   importErrors: string[]
 }
@@ -134,12 +138,13 @@ export type PlatformRunId = string & Branded<'PlatformRunId'>
 
 /** Frozen behavior supported by the first versioned composition format. */
 export interface AgentSnapshot {
+  resources?: ResourceManifest | undefined
   harnessId: 'deepseek-harness'
   prompt: string
   model: ModelSelection
   toolIds: string[]
   executionConfig: {
-    rendererVersion: 1
+    rendererVersion: 1 | 2
     includeRuntimeContext: false
     businessDate: string
     compaction: { thresholdChars: number; headChars: number; tailChars: number }
@@ -154,7 +159,7 @@ export interface AgentVersion {
   platformWorkspaceId: string
   versionNumber: number
   sourceRevision: number
-  schemaVersion: 1
+  schemaVersion: 1 | 2
   snapshot: AgentSnapshot
   configHash: string
   changeNote: string
@@ -179,7 +184,7 @@ export interface AgentDeployment {
 }
 
 /** Platform task lifecycle, independent of individual LLM and tool calls. */
-export type RunStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
+export type RunStatus = 'PENDING' | 'RUNNING' | 'RETRY_WAIT' | 'RECOVERING' | 'BLOCKED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
 
 /** Durable lifecycle fact shared by execution consumers. */
 export interface RunLifecycleEvent {
@@ -189,11 +194,16 @@ export interface RunLifecycleEvent {
   agentVersionId: AgentVersionId
   sessionId: SessionId
   type: 'run.created' | 'run.started' | 'run.succeeded' | 'run.failed' | 'run.cancelled'
+    | 'run.recovering' | 'run.retry-scheduled' | 'run.blocked' | 'run.cancel-requested' | 'run.resolved'
   occurredAt: string
+  actorId?: string | undefined
+  interventionId?: string | undefined
+  decision?: 'completed' | 'not-executed' | undefined
 }
 
 /** Persisted task attribution, lifecycle and bounded output reference. */
 export interface PlatformRun {
+  ownerTeamIdAtStart?: string | undefined
   id: PlatformRunId
   agentId: RegistryAgentId
   agentVersionId: AgentVersionId
@@ -213,6 +223,16 @@ export interface PlatformRun {
   result: { textPreview: string | null; sessionId: SessionId; finalMessageSeq: number | null } | null
   error: { code: string; message: string } | null
   events: RunLifecycleEvent[]
+  /** Absent on historical tasks that predate reliable execution. */
+  runtime?: {
+    attempt: number
+    heartbeatAt: string | null
+    checkpointSeq: number
+    checkpointAt: string | null
+    nextAttemptAt: string | null
+    deadlineAt: string
+    resolution: { token: string; callId: string; decision: 'completed' | 'not-executed'; evidence: string; at: string } | null
+  } | undefined
 }
 
 /** Bounded page shared by version, deployment and Run queries. */
@@ -221,3 +241,4 @@ export interface AgentHistoryPage<T> {
   nextCursor: number | null
 }
 export type { TraceEventType, TraceEvent, TracePreview, TraceUsage, RunTrace, RunTracePage } from './trace-types.ts'
+export type * from './observability-types.ts'
