@@ -3,8 +3,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { AgentDeployment, AgentHistoryPage, AgentVersion, AgentVersionSummary, PlatformRun, RegistryAgent } from '@deepseek-ai/dsh-agent-builder/types'
+import type { AgentDeployment, AgentHistoryPage, AgentVersion, AgentVersionSummary, PlatformRun, RegistryAgent, RunStatus } from '@deepseek-ai/dsh-agent-builder/types'
 import css from './AgentRegistry.module.css'
+import { AgentRuns } from './AgentRuns.tsx'
+import type { RunTracePage } from '@deepseek-ai/dsh-agent-builder/types'
 
 /** Apply-owned version and task callbacks. */
 export interface VersionActions {
@@ -15,7 +17,10 @@ export interface VersionActions {
   deploymentHistory(workspace: string, id: string, cursor: number): Promise<AgentHistoryPage<AgentDeployment>>
   deploymentActivate(workspace: string, id: string, version: string, revision: number, token: string, action: 'deploy' | 'rollback'): Promise<AgentDeployment>
   runStart(workspace: string, id: string, prompt: string, token: string): Promise<PlatformRun>
-  runList(workspace: string, id: string, cursor: number, versionId?: string): Promise<AgentHistoryPage<PlatformRun>>
+  runList(workspace: string, id: string, cursor: number, versionId?: string, status?: RunStatus): Promise<AgentHistoryPage<PlatformRun>>
+  runGet(workspace: string, id: string, runId: string): Promise<PlatformRun>
+  runCancel(workspace: string, id: string, runId: string): Promise<PlatformRun>
+  runTraceEvents(workspace: string, id: string, runId: string, cursor?: string, limit?: number): Promise<RunTracePage>
   openRun(run: PlatformRun): void
 }
 
@@ -32,7 +37,6 @@ export function AgentVersionsPanel(props: Props) {
   const [deployment, setDeployment] = useState<AgentDeployment | null>(null)
   const [active, setActive] = useState<AgentVersion | null>(null)
   const [history, setHistory] = useState<AgentHistoryPage<AgentDeployment> | null>(null)
-  const [runs, setRuns] = useState<AgentHistoryPage<PlatformRun> | null>(null)
   const [selected, setSelected] = useState<AgentVersion | null>(null)
   const [cursor, setCursor] = useState(0)
   const [historyCursor, setHistoryCursor] = useState(0)
@@ -42,7 +46,6 @@ export function AgentVersionsPanel(props: Props) {
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [prompt, setPrompt] = useState('')
-  const [filter, setFilter] = useState('')
   const [latestRun, setLatestRun] = useState<PlatformRun | null>(null)
   const tokens = useRef({ version: randomUUID(), run: randomUUID(), deployment: randomUUID(), activation: '' })
   const actions = useRef(props)
@@ -55,20 +58,19 @@ export function AgentVersionsPanel(props: Props) {
     setLoading(true); setError(null)
     void (async () => {
       try {
-        const [saved, current, past, tasks] = await Promise.all([
+        const [saved, current, past] = await Promise.all([
           actions.current.versionList(workspace, agent.id, mode === 'versions' ? cursor : 0),
           actions.current.deploymentGet(workspace, agent.id),
           actions.current.deploymentHistory(workspace, agent.id, historyCursor),
-          mode === 'runs' ? actions.current.runList(workspace, agent.id, cursor, filter || undefined) : Promise.resolve(null),
         ])
         const currentVersion = current === null ? null : await actions.current.versionGet(workspace, agent.id, current.versionId)
         if (!live()) return
-        setVersions(saved); setDeployment(current); setActive(currentVersion); setHistory(past); setRuns(tasks)
+        setVersions(saved); setDeployment(current); setActive(currentVersion); setHistory(past)
       } catch (failure) { if (live()) setError(failure instanceof Error ? failure.message : String(failure)) }
       finally { if (live()) setLoading(false) }
     })()
     return () => { alive = false }
-  }, [workspace, agent.id, agent.revision, mode, cursor, historyCursor, filter, refresh])
+  }, [workspace, agent.id, agent.revision, mode, cursor, historyCursor, refresh])
 
   const perform = async (operation: () => Promise<void>) => {
     if (busy) return
@@ -95,8 +97,18 @@ export function AgentVersionsPanel(props: Props) {
     const run = await props.runStart(workspace, agent.id, prompt, tokens.current.run)
     setLatestRun(run); tokens.current.run = randomUUID(); setPrompt(''); setRefresh(value => value + 1)
   })
+  useEffect(() => {
+    if (latestRun === null || (latestRun.status !== 'PENDING' && latestRun.status !== 'RUNNING')) return
+    let alive = true
+    const timer = setTimeout(() => {
+      void actions.current.runGet(workspace, agent.id, latestRun.id).then((value) => { if (alive) setLatestRun(value) },
+        (failure: unknown) => { if (alive) setError(String(failure)) })
+    }, 1000)
+    return () => { alive = false; clearTimeout(timer) }
+  }, [latestRun, workspace, agent.id])
   const disabled = busy || loading || agent.lifecycle === 'archived'
-  const rows = mode === 'runs' ? runs : versions
+  const rows = versions
+  const showingRun = mode === 'runs' && window.location.hash.includes('/runs/')
   return <section className={css.detail} aria-label={t('versionManagement')}>
     <div className={css.actions}><span className={css.badge}>{t('currentVersion')}: {active === null ? t('notDeployed') : t('versionPrefix') + String(active.versionNumber)}</span>
       {mode === 'overview' && <span>{t('latestVersion')}: {versions?.items[0] === undefined ? t('noVersions') : t('versionPrefix') + String(versions.items[0].versionNumber)}</span>}
@@ -118,25 +130,15 @@ export function AgentVersionsPanel(props: Props) {
             {active !== null && version.versionNumber < active.versionNumber ? t('rollback') : t('deploy')}</Button></div>
       </article>)}</div>
     </>}
-    {(mode === 'overview' || mode === 'runs') && <form className={css.form} onSubmit={(event) => { event.preventDefault(); void start() }}>
+    {(mode === 'overview' || (mode === 'runs' && !showingRun)) && <form className={css.form} onSubmit={(event) => { event.preventDefault(); void start() }}>
       <p className={css.scope}>{t('runHint')}</p><label>{t('taskPrompt')}<textarea aria-label={t('taskPrompt')} rows={3} maxLength={32000} value={prompt}
         onChange={(event) => { setPrompt(event.target.value); tokens.current.run = randomUUID() }} /></label>
       <div><Button type="submit" disabled={disabled || deployment === null || !prompt.trim()}>{t('startRun')}</Button></div>
       {latestRun !== null && <div className={css.notice}><span>{latestRun.id} · {t('versionPrefix')}{latestRun.versionNumber} · {t(latestRun.status)}</span>
-        {latestRun.error !== null && <p role="alert">{latestRun.error}</p>}<Button variant="outline" onClick={() => { props.openRun(latestRun) }}>{t('openRun')}</Button></div>}
+        {latestRun.error !== null && <p role="alert">{latestRun.error.message}</p>}<Button variant="outline" onClick={() => { props.openRun(latestRun) }}>{t('openRun')}</Button></div>}
     </form>}
-    {mode === 'runs' && <>
-      <div className={css.filters}><select aria-label={t('versionFilter')} value={filter} onChange={(event) => { setFilter(event.target.value); setCursor(0) }}>
-        <option value="">{t('allVersions')}</option>{versions?.items.map(version => <option key={version.id} value={version.id}>{t('versionPrefix')}{version.versionNumber}</option>)}</select></div>
-      {!loading && runs?.items.length === 0 && <p className={css.empty}>{t('noRuns')}</p>}
-      <div className={css.versionRows}>{runs?.items.map(run => <article key={run.id} className={css.versionRow}>
-        <div><strong>{t(run.status)}</strong><p>{run.id}</p><small>{new Date(run.createdAt).toLocaleString()}</small>
-          {run.error !== null && <p>{run.error}</p>}</div>
-        <div className={css.actions}><Button variant="outline" disabled={busy} onClick={() => { void view(run.agentVersionId) }}>{t('versionPrefix')}{run.versionNumber}</Button>
-          <Button variant="outline" onClick={() => { props.openRun(run) }}>{t('openRun')}</Button></div>
-      </article>)}</div>
-    </>}
-    {mode !== 'overview' && <div className={css.actions}>{cursor > 0 && <Button variant="outline" disabled={busy || loading} onClick={() => { setCursor(0) }}>{t('first')}</Button>}
+    {mode === 'runs' && <AgentRuns {...props} refreshKey={refresh} versions={versions?.items ?? []} viewVersion={view} />}
+    {mode === 'versions' && <div className={css.actions}>{cursor > 0 && <Button variant="outline" disabled={busy || loading} onClick={() => { setCursor(0) }}>{t('first')}</Button>}
       {rows?.nextCursor != null && <Button variant="outline" disabled={busy || loading}
         onClick={() => { if (rows.nextCursor !== null) setCursor(rows.nextCursor) }}>{t('next')}</Button>}</div>}
     {selected !== null && <section className={css.snapshot} aria-label={t('versionSnapshot')}>

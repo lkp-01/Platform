@@ -183,9 +183,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'task attribution and current status.',
       },
       {
-        signature: '@Remote(\'runList\') async runList(workspaceId: string, id: string, cursor: number, versionId?: string): Promise<AgentHistoryPage<PlatformRun>>',
+        signature: '@Remote(\'runList\') async runList( workspaceId: string, id: string, cursor: number, versionId?: string, status?: RunStatus, ): Promise<AgentHistoryPage<PlatformRun>>',
         description: 'List real platform tasks, independently of legacy Sessions.',
-        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'cursor', description: 'page offset.' }, { name: 'versionId', description: 'optional exact version filter.' }],
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'cursor', description: 'page offset.' }, { name: 'versionId', description: 'optional exact version filter.' }, { name: 'status', description: 'optional lifecycle filter.' }],
         returns: 'bounded Run page.',
       },
       {
@@ -193,6 +193,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read a Run with the version selected at admission.',
         parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'runId', description: 'task identity.' }],
         returns: 'attribution and Harness-derived status.',
+      },
+      {
+        signature: '@Remote(\'runTraceGet\') async runTraceGet(workspaceId: string, id: string, runId: string): Promise<RunTrace>',
+        description: 'Read execution accounting for an authorized task.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'runId', description: 'task identity.' }],
+        returns: 'persisted Trace summary and availability.',
+      },
+      {
+        signature: '@Remote(\'runTraceEvents\') async runTraceEvents(workspaceId: string, id: string, runId: string, cursor?: string, limit?: number): Promise<RunTracePage>',
+        description: 'Read source-ordered execution facts with bounded previews.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'runId', description: 'task identity.' }, { name: 'cursor', description: 'opaque position from a previous page.' }, { name: 'limit', description: 'maximum events, from 1 to 100.' }],
+        returns: 'events and the matching accounting revision.',
+      },
+      {
+        signature: '@Remote(\'runCancel\') async runCancel(workspaceId: string, id: string, runId: string): Promise<PlatformRun>',
+        description: 'Request cancellation of a scoped platform task.',
+        parameters: [{ name: 'workspaceId', description: 'organization scope.' }, { name: 'id', description: 'Agent identity.' }, { name: 'runId', description: 'task identity.' }],
+        returns: 'current lifecycle, including pending cancellation intent.',
+      },
+      {
+        signature: '@Remote(\'runForSession\') async runForSession(sessionId: string): Promise<PlatformRun>',
+        description: 'Resolve a managed Session for the execution-page cancellation entry.',
+        parameters: [{ name: 'sessionId', description: 'existing Session identity.' }],
+        returns: 'task after checking its configured organization scope.',
       },
     ],
   },
@@ -4956,7 +4980,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PlatformRun',
-    declaration: 'export interface PlatformRun {\n    id: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    versionNumber: number;\n    platformWorkspaceId: string;\n    configHash: string;\n    deploymentRevision: number;\n    sessionId: SessionId;\n    createdAt: string;\n    createdBy: string;\n    status: \'accepted\' | \'running\' | \'succeeded\' | \'failed\' | \'cancelled\' | \'interrupted\';\n    error: string | null;\n}',
+    declaration: 'export interface PlatformRun {\n    id: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    versionNumber: number;\n    platformWorkspaceId: string;\n    configHash: string;\n    deploymentRevision: number;\n    sessionId: SessionId;\n    createdAt: string;\n    createdBy: string;\n    status: RunStatus;\n    startedAt: string | null;\n    finishedAt: string | null;\n    finishTimeSource: \'execution\' | \'detected\' | null;\n    cancelRequestedAt: string | null;\n    input: {\n        prompt: string;\n    } | null;\n    result: {\n        textPreview: string | null;\n        sessionId: SessionId;\n        finalMessageSeq: number | null;\n    } | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    events: RunLifecycleEvent[];\n}',
   },
   {
     name: 'PlatformRunId',
@@ -5195,8 +5219,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly parentAgent?: Agent;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
+    name: 'RunLifecycleEvent',
+    declaration: 'export interface RunLifecycleEvent {\n    eventId: string;\n    runId: PlatformRunId;\n    agentId: RegistryAgentId;\n    agentVersionId: AgentVersionId;\n    sessionId: SessionId;\n    type: \'run.created\' | \'run.started\' | \'run.succeeded\' | \'run.failed\' | \'run.cancelled\';\n    occurredAt: string;\n}',
+  },
+  {
     name: 'RunnerFailureRule',
     declaration: 'export interface RunnerFailureRule {\n    allowedExitCodes?: readonly number[];\n    fatalSignatures: readonly string[];\n    informationalLines?: readonly string[];\n}',
+  },
+  {
+    name: 'RunStatus',
+    declaration: 'export type RunStatus = \'PENDING\' | \'RUNNING\' | \'SUCCEEDED\' | \'FAILED\' | \'CANCELLED\';',
+  },
+  {
+    name: 'RunTrace',
+    declaration: 'export interface RunTrace {\n    runId: PlatformRun[\'id\'];\n    sessionId: PlatformRun[\'sessionId\'];\n    agentId: PlatformRun[\'agentId\'];\n    agentVersionId: PlatformRun[\'agentVersionId\'];\n    platformWorkspaceId: string;\n    revision: string;\n    state: \'pending\' | \'complete\' | \'partial\' | \'unavailable\';\n    eventCount: number;\n    modelCalls: number;\n    toolCalls: number;\n    inputTokens: number | null;\n    outputTokens: number | null;\n    totalTokens: number | null;\n    usageComplete: boolean;\n}',
+  },
+  {
+    name: 'RunTracePage',
+    declaration: 'export interface RunTracePage {\n    trace: RunTrace;\n    items: TraceEvent[];\n    nextCursor: string | null;\n}',
   },
   {
     name: 'SandboxEnforcement',
@@ -6373,6 +6413,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'TraceEvent',
+    declaration: 'export interface TraceEvent {\n    eventId: string;\n    type: TraceEventType;\n    occurredAt: string;\n    sourceSeq: number | null;\n    sourceRunEventId: string | null;\n    operationId: string | null;\n    turn: number | null;\n    step: number | null;\n    provider: string | null;\n    model: string | null;\n    tool: string | null;\n    durationMs: number | null;\n    preview: TracePreview | null;\n    usage: TraceUsage | null;\n    error: {\n        code: string;\n        message: string;\n    } | null;\n    incomplete: boolean;\n}',
+  },
+  {
+    name: 'TraceEventType',
+    declaration: 'export type TraceEventType = RunLifecycleEvent[\'type\'] | \'model.call.started\' | \'model.call.completed\' | \'model.call.failed\' | \'model.call.cancelled\' | \'model.retry.scheduled\' | \'tool.call.started\' | \'tool.call.completed\' | \'tool.call.failed\' | \'final.answer\';',
+  },
+  {
+    name: 'TracePreview',
+    declaration: 'export interface TracePreview {\n    text: string;\n    truncated: boolean;\n    redacted: boolean;\n}',
+  },
+  {
+    name: 'TraceUsage',
+    declaration: 'export interface TraceUsage {\n    inputTokens: number | null;\n    outputTokens: number;\n    totalTokens: number | null;\n}',
   },
   {
     name: 'TurnEndCancelCause',

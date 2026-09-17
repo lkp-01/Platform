@@ -1,0 +1,38 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Run lifecycle through the shipped Web composition > shows final results, direct links, failure and confirmed cancellation 1`] = `
+{
+  "actor": "shared-host",
+  "events": [
+    "run.created",
+    "run.started",
+    "run.succeeded",
+  ],
+  "input": {
+    "prompt": "Inspect service",
+  },
+  "result": "Version test completed",
+  "status": "SUCCEEDED",
+  "version": 1,
+}
+`;
+
+exports[`Run lifecycle through the shipped Web composition > shows final results, direct links, failure and confirmed cancellation 2`] = `
+{
+  "modelCalls": 2,
+  "tokens": 330,
+  "toolCalls": 1,
+  "types": [
+    "run.created",
+    "run.started",
+    "model.call.started",
+    "model.call.completed",
+    "tool.call.started",
+    "tool.call.completed",
+    "model.call.started",
+    "model.call.completed",
+    "final.answer",
+    "run.succeeded",
+  ],
+}
+`;

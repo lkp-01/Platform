@@ -16,8 +16,10 @@ import { AgentRegistry, registryInputSchema, RegistryError } from './registry.ts
 import { AgentVersions } from './versions.ts'
 import { AgentDeployments } from './deployments.ts'
 import { PlatformRuns, versionCallConfig } from './platform-runs.ts'
+import { PlatformTraces } from './platform-traces.ts'
+import type { RunTrace, RunTracePage } from './trace-types.ts'
 import { prepareVersionPreset } from './version-preset.ts'
-import type { AgentVersion, AgentVersionSummary, AgentDeployment, AgentHistoryPage, PlatformRun } from './types.ts'
+import type { AgentVersion, AgentVersionSummary, AgentDeployment, AgentHistoryPage, PlatformRun, RunStatus } from './types.ts'
 import type { AgentBuilderCatalog, AgentDefinition, AgentDefinitionInput, RegistryAgent, RegistryAgentInput, RegistryCatalog, RegistryPage, RegistryQuery } from './types.ts'
 
 export type * from './types.ts'
@@ -28,6 +30,8 @@ declare module '@deepseek-ai/cordis' {
 
 /** Host-owned configuration directory. */
 interface Config {
+  /** Maximum Unicode code points retained in each Trace preview. */
+  tracePreviewChars?: number
   /** Host-owned persistent directory, also included in Preset discovery. */
   root: string
   /** Organization workspace ID; independent of filesystem workspaces. */
@@ -44,6 +48,7 @@ interface Config {
 export default class AgentBuilder extends TypertRemoteService {
   static inject = ['agentPresets', 'sessionController', 'llm', 'agentDefaultModel', 'storageDomain', 'agents', 'sessions', 'sessionQuery']
   static Config: s<Config> = s.object({ root: s.string().required(),
+    tracePreviewChars: s.number().min(64).max(16000).step(1).default(4000),
     workspaceId: s.string().default('shared'), workspaceName: s.string().default('Shared workspace'),
     ownerTeamId: s.string().default('shared-team'), ownerTeamName: s.string().default('Shared team'),
   })
@@ -51,6 +56,7 @@ export default class AgentBuilder extends TypertRemoteService {
   private versions!: AgentVersions
   private deployments!: AgentDeployments
   private runs!: PlatformRuns
+  private traces!: PlatformTraces
   private readonly stores: { close(): Promise<void> }[] = []
   private importErrors: string[] = []
 
@@ -60,8 +66,8 @@ export default class AgentBuilder extends TypertRemoteService {
       ownerTeamId: this.config.ownerTeamId ?? 'shared-team', ownerTeamName: this.config.ownerTeamName ?? 'Shared team', accessMode: 'shared-host',
     })
     this.ctx.effect(() => async () => {
-      await this.registry.close()
       for (const store of this.stores.toReversed()) await store.close()
+      await this.registry.close()
     }, 'agent-builder.storage-close')
     this.versions = await AgentVersions.open(this.ctx.storageDomain, this.registry)
     this.stores.push(this.versions)
@@ -69,6 +75,8 @@ export default class AgentBuilder extends TypertRemoteService {
     this.stores.push(this.deployments)
     this.runs = await PlatformRuns.open(this.ctx, this.registry, this.versions, this.deployments)
     this.stores.push(this.runs)
+    this.traces = await PlatformTraces.open(this.ctx, this.runs, this.config.tracePreviewChars ?? 4000)
+    this.stores.splice(this.stores.length - 1, 0, this.traces)
     let entries: string[]
     try { entries = await readdir(this.config.root) }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; entries = [] }
@@ -348,11 +356,14 @@ export default class AgentBuilder extends TypertRemoteService {
    * @param id - Agent identity.
    * @param cursor - page offset.
    * @param versionId - optional exact version filter.
+   * @param status - optional lifecycle filter.
    * @returns bounded Run page.
    */
   @Remote('runList')
-  async runList(workspaceId: string, id: string, cursor: number, versionId?: string): Promise<AgentHistoryPage<PlatformRun>> {
-    return this.registryCall(() => this.runs.list(workspaceId, id, cursor, versionId))
+  async runList(
+    workspaceId: string, id: string, cursor: number, versionId?: string, status?: RunStatus,
+  ): Promise<AgentHistoryPage<PlatformRun>> {
+    return this.registryCall(() => this.runs.list(workspaceId, id, cursor, versionId, status))
   }
 
   /** Read a Run with the version selected at admission.
@@ -364,6 +375,54 @@ export default class AgentBuilder extends TypertRemoteService {
   @Remote('runGet')
   async runGet(workspaceId: string, id: string, runId: string): Promise<PlatformRun> {
     return this.registryCall(() => this.runs.get(workspaceId, id, runId))
+  }
+
+  /** Read execution accounting for an authorized task.
+   * @param workspaceId - organization scope.
+   * @param id - Agent identity.
+   * @param runId - task identity.
+   * @returns persisted Trace summary and availability.
+   */
+  @Remote('runTraceGet')
+  async runTraceGet(workspaceId: string, id: string, runId: string): Promise<RunTrace> {
+    return this.registryCall(async () => this.traces.get(await this.runs.get(workspaceId, id, runId)))
+  }
+
+  /** Read source-ordered execution facts with bounded previews.
+   * @param workspaceId - organization scope.
+   * @param id - Agent identity.
+   * @param runId - task identity.
+   * @param cursor - opaque position from a previous page.
+   * @param limit - maximum events, from 1 to 100.
+   * @returns events and the matching accounting revision.
+   */
+  @Remote('runTraceEvents')
+  async runTraceEvents(workspaceId: string, id: string, runId: string, cursor?: string, limit?: number): Promise<RunTracePage> {
+    return this.registryCall(async () => this.traces.events(await this.runs.get(workspaceId, id, runId), cursor, limit))
+  }
+
+  /** Request cancellation of a scoped platform task.
+   * @param workspaceId - organization scope.
+   * @param id - Agent identity.
+   * @param runId - task identity.
+   * @returns current lifecycle, including pending cancellation intent.
+   */
+  @Remote('runCancel')
+  async runCancel(workspaceId: string, id: string, runId: string): Promise<PlatformRun> {
+    return this.registryCall(() => this.runs.cancel(workspaceId, id, runId))
+  }
+
+  /** Resolve a managed Session for the execution-page cancellation entry.
+   * @param sessionId - existing Session identity.
+   * @returns task after checking its configured organization scope.
+   */
+  @Remote('runForSession')
+  async runForSession(sessionId: string): Promise<PlatformRun> {
+    return this.registryCall(() => {
+      const run = this.runs.forSession(sessionId)
+      if (run === undefined) throw new RegistryError('not-found', 'Run not found')
+      return this.runs.get(this.registry.workspace.id, run.agentId, run.id)
+    })
   }
 
   private async prepareVersion(version: AgentVersion): Promise<void> {

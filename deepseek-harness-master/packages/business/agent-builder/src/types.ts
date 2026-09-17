@@ -178,7 +178,21 @@ export interface AgentDeployment {
   updatedAt: string
 }
 
-/** Durable task attribution; status is projected from Harness events. */
+/** Platform task lifecycle, independent of individual LLM and tool calls. */
+export type RunStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
+
+/** Durable lifecycle fact shared by execution consumers. */
+export interface RunLifecycleEvent {
+  eventId: string
+  runId: PlatformRunId
+  agentId: RegistryAgentId
+  agentVersionId: AgentVersionId
+  sessionId: SessionId
+  type: 'run.created' | 'run.started' | 'run.succeeded' | 'run.failed' | 'run.cancelled'
+  occurredAt: string
+}
+
+/** Persisted task attribution, lifecycle and bounded output reference. */
 export interface PlatformRun {
   id: PlatformRunId
   agentId: RegistryAgentId
@@ -190,8 +204,15 @@ export interface PlatformRun {
   sessionId: SessionId
   createdAt: string
   createdBy: string
-  status: 'accepted' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
-  error: string | null
+  status: RunStatus
+  startedAt: string | null
+  finishedAt: string | null
+  finishTimeSource: 'execution' | 'detected' | null
+  cancelRequestedAt: string | null
+  input: { prompt: string } | null
+  result: { textPreview: string | null; sessionId: SessionId; finalMessageSeq: number | null } | null
+  error: { code: string; message: string } | null
+  events: RunLifecycleEvent[]
 }
 
 /** Bounded page shared by version, deployment and Run queries. */
@@ -199,3 +220,4 @@ export interface AgentHistoryPage<T> {
   items: T[]
   nextCursor: number | null
 }
+export type { TraceEventType, TraceEvent, TracePreview, TraceUsage, RunTrace, RunTracePage } from './trace-types.ts'

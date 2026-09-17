@@ -53,3 +53,12 @@
 .deploymentHistory { margin-top: 28px; }
 @media(max-width: 700px) { .versionRow { align-items: flex-start; flex-direction: column; gap: 4px; } }
 @media(max-width: 700px) { .panel { padding: 24px 18px; } .header { align-items: flex-start; flex-direction: column; gap: 0; } .columns, .toolGrid { grid-template-columns: 1fr; } .filters { flex-wrap: wrap; } .tabs { gap: 20px; } }
+.snapshot .traceMetrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 24px; margin: 16px 0; }
+.traceMetrics dt { font-size: 12px; opacity: 0.7; }
+.traceMetrics dd { margin: 4px 0; font-size: 20px; font-variant-numeric: tabular-nums; }
+.traceTimeline { list-style: none; padding: 0; margin: 20px 0; }
+.traceRow { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 16px; padding: 12px 0; border-top: 1px solid var(--border-color, #8884); }
+.traceRow time { font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.traceRow summary { cursor: pointer; }
+.traceRow pre { overflow: auto; max-height: 320px; }
+@media (max-width: 560px) { .traceRow { grid-template-columns: 1fr; gap: 4px; } }

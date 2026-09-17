@@ -87,7 +87,7 @@ describe('Agent Version through the shipped Web composition', () => {
     await panel.getByRole('button', { name: 'Start Run', exact: true }).click()
     await panel.getByRole('button', { name: 'View execution', exact: true }).first().waitFor()
     const first = (await scaffold.ctx.agentBuilder.runList('shared', agentId, 0)).items[0]!
-    await expect.poll(async () => (await scaffold.ctx.agentBuilder.runGet('shared', agentId, first.id)).status).toBe('succeeded')
+    await expect.poll(async () => (await scaffold.ctx.agentBuilder.runGet('shared', agentId, first.id)).status).toBe('SUCCEEDED')
     await panel.getByRole('button', { name: 'Versions', exact: true }).click()
     const v1Row = panel.locator('[data-version="1"]')
     await v1Row.getByRole('button', { name: 'Roll back', exact: true }).click()
@@ -97,7 +97,7 @@ describe('Agent Version through the shipped Web composition', () => {
     await panel.getByRole('button', { name: 'Start Run', exact: true }).click()
     await expect.poll(async () => (await scaffold.ctx.agentBuilder.runList('shared', agentId, 0)).items.length).toBe(2)
     const second = (await scaffold.ctx.agentBuilder.runList('shared', agentId, 0)).items.find(run => run.id !== first.id)!
-    await expect.poll(async () => (await scaffold.ctx.agentBuilder.runGet('shared', agentId, second.id)).status).toBe('succeeded')
+    await expect.poll(async () => (await scaffold.ctx.agentBuilder.runGet('shared', agentId, second.id)).status).toBe('SUCCEEDED')
     expect(model.requests).toHaveLength(2)
     expect(model.requests.map(request => ({ model: request.model, tools: request.tools?.map(tool => tool.name) ?? [],
       rolePrompt: request.messages.filter(message => message.role === 'system').flatMap(message => message.content)
@@ -105,7 +105,7 @@ describe('Agent Version through the shipped Web composition', () => {
     }))).toMatchSnapshot()
     expect(first.agentVersionId).not.toBe(second.agentVersionId)
     await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
-    await panel.getByText('Succeeded', { exact: true }).first().waitFor()
+    await panel.locator('[data-run]').getByText('Succeeded', { exact: true }).first().waitFor()
     await page.screenshot({ path: '../docs/verification/agent-version-runs.png', fullPage: true })
     await panel.getByRole('button', { name: 'View execution', exact: true }).first().click()
     await page.getByText('This Run keeps its saved configuration. Start a new task from the Agent page to continue.', { exact: true }).waitFor()
@@ -114,7 +114,7 @@ describe('Agent Version through the shipped Web composition', () => {
     await scaffold.close()
     await launch()
     const afterRestart = await scaffold.ctx.agentBuilder.runGet('shared', agentId, first.id)
-    expect(afterRestart).toMatchObject({ agentVersionId: first.agentVersionId, status: 'succeeded' })
+    expect(afterRestart).toMatchObject({ agentVersionId: first.agentVersionId, status: 'SUCCEEDED' })
     expect((await scaffold.ctx.agentBuilder.deploymentGet('shared', agentId))?.versionId).toBe(second.agentVersionId)
     await scaffold.ctx.sessionController.create({
       sessionId: first.sessionId, agentPreset: first.agentVersionId, cwd: originalCwd,

@@ -44,6 +44,8 @@ export interface AcpConfig {
 ```ts config-catalog
 /** Host-owned configuration directory. */
 interface Config {
+  /** Maximum Unicode code points retained in each Trace preview. */
+  tracePreviewChars?: number
   /** Host-owned persistent directory, also included in Preset discovery. */
   root: string
   /** Organization workspace ID; independent of filesystem workspaces. */
@@ -57,7 +59,7 @@ interface Config {
 }
 ```
 
-来源：[`packages/business/agent-builder/src/index.ts:25`](../packages/business/agent-builder/src/index.ts)
+来源：[`packages/business/agent-builder/src/index.ts:32`](../packages/business/agent-builder/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 

@@ -37,7 +37,7 @@ Host 配置支持 `workspaceId` / `workspaceName`（默认 `shared` / `Shared wo
 
 [Version](src/versions.ts) 与 [Deployment](src/deployments.ts) 使用独立 Storage Domain。每个 Agent 的版本序号与重试凭据在一条串行化记录中提交；部署指针、历史和凭据也共同提交。Registry 串行控制将这些操作与草稿编辑、归档排序。模型或工具下线后历史快照仍可读取。单 Agent 记录随保留历史增长，只支持一个写入 Host。
 
-[Platform Run](src/platform-runs.ts) 在创建独立 Harness Session 之前持久化任务接受记录。每个已接受任务固定版本、配置摘要和部署修订号；`platform/run` 在 Session 日志中记录相同归因。状态来自 Harness 轮次事件。重复提交标识不会再次发送任务。进程丢失且没有已完成轮次时显示已中断，不自动重发。Session 和 Preset 授权钩子拒绝直接启动版本、切换模型、追加提示词、fork 和修改受管组合。普通旧式会话保留原有行为。
+[Platform Run](src/platform-runs.ts) 先持久化任务接受记录与输入，再准备固定版本并创建独立 Harness Session。每个 Run 只有 PENDING、RUNNING、SUCCEEDED、FAILED、CANCELLED 五种状态。Harness 事件驱动保存开始/结束时间、有界最终答案摘要、输出引用与结构化错误；列表查询读取任务记录，不扫描对话明细。重复提交标识不会再次发送任务。取消会阻止待执行任务提交，或请求原 Harness 取消；执行停止前保持 RUNNING。进程中断归为 FAILED，附 EXECUTION_INTERRUPTED 和检测时间，不重发任务。终态不可变；启动时结合原 Session 事件对账旧记录与未结束任务。存储读取错误直接报告，不伪造执行失败。Session 和 Preset 授权钩子保持固定配置与普通 Session 行为。
 
 版本 Preset 使用独立 `version-*` 目录，不参与旧资源导入。激活和启动前检查完整文件；依赖挂载成功后才能切换部署指针。已有 Session 恢复其记录的 Preset。外部文件编辑、插件代码变化、Host 系统提示词贡献和远程服务变化不属于冻结的业务配置；请求头和面向模型的消息记录实际执行内容。这是配置追溯，不保证确定性输出复现。
 
@@ -61,7 +61,15 @@ Host 配置支持 `workspaceId` / `workspaceName`（默认 `shared` / `Shared wo
 
 </details>
 
-本包不发布运行时不变量伴随模块，因为 Storage Domain 负责已提交记录，每次接受任务都在调用 Harness 前检查确切版本与执行产物。插件卸载会等待已接受的 Registry 操作完成，并关闭其拥有的 Domain。
+本包不发布运行时不变量伴随模块，因为 Storage Domain 负责已提交记录，每次接受任务都在调用 Harness 前检查确切版本与执行产物。插件卸载会停止接受任务，排空启动与执行结束处理，再关闭其拥有的 Domain。生命周期事件与 Run 在同一记录中原子保存，通过现有 Storage Domain 变更通知发布；这不是持久化消息总线。
+
+### Run Trace
+
+[PlatformTraces](src/platform-traces.ts) 通过已有 Agent 流通知记录模型调用起点，从原始 Session 与 Run 记录投影模型结算、工具调用/结果、重试事实和最终答案。`platform_run_traces` Storage Domain 保存模型起点、每页最多 100 个事件的版本化页面及摘要。页面先落盘，再由摘要发布版本；写入失败可重放而不会重复计数。关闭时先结算 Run，再排空 Trace 写入。Trace 不驱动执行，也不改变 Run 结果。
+
+`runTraceGet` 和 `runTraceEvents` 使用与 Run 查询相同的 workspace/Agent/Run 归属校验。游标绑定单个 Run 与版本；版本变化后需从首页读取。普通查询使用已保存页面。相关执行通知合并触发源日志对账；历史 Run 在首次访问时重建。目前对账折叠完整源日志，因此长时间运行的任务比增量检查点投影需要更多计算。无需远程遥测后端。
+
+Host 选项 `tracePreviewChars` 默认 4000 个 Unicode 码点，范围为 64–16000。预览隐藏常见凭证字段并保留截断标记；这不保证任意文本完全不含敏感信息。原始 Session 内容沿用现有访问策略。缺失的模型起点、恢复生成的工具结果与缺失用量保持未知。模型耗时为观察到的开始至结算区间；工具耗时包含 Harness 调用链。缓存输入计入总输入，推理 Token 属于输出子集，统计不完整时明确标注。进程骤停可能丢失尚未 flush 的源事实。多 Host tracing、自动保留策略、分布式 span 和跨 Session 聚合不属于本包范围。
 
 <a id="model-experience"></a>
 ## 模型体验

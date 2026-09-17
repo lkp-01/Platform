@@ -12,7 +12,7 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { ToolCallId, createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Records from '@deepseek-ai/dsh-business-tools'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import Commands from '@deepseek-ai/dsh-commands'
@@ -25,8 +25,10 @@ import { createSessionTestController } from '../../../api/session-controller/tes
 const root = fileURLToPath(new URL('../presets/', import.meta.url))
 const contexts: Context[] = []
 const temporaryRoots: string[] = []
-afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose() })
-afterEach(async () => { for (const path of temporaryRoots.splice(0)) await rm(path, { recursive: true, force: true }) })
+afterEach(async () => {
+  for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
+  for (const path of temporaryRoots.splice(0)) await rm(path, { recursive: true, force: true })
+})
 
 async function harness(extraRoot?: string) {
   const ctx = new Context()
@@ -89,6 +91,194 @@ async function run(agent: Agent, prompt = '执行测试业务任务') {
   await agent.whenIdle()
 }
 
+async function platform(steps: ConstructorParameters<typeof ScriptedModel>[0]) {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-run-lifecycle-'))
+  temporaryRoots.push(directory)
+  const ctx = await harness(directory)
+  const model = new ScriptedModel(steps)
+  ctx.llm.registerAdapter(['demo'], model)
+  createSessionTestController(ctx, { cwd: directory, defaultModelSelection: () => ({ provider: 'demo', model: 'demo' }) })
+  await ctx.plugin(Storage)
+  await ctx.plugin(StorageJson, { root: join(directory, 'storage') })
+  await ctx.plugin(StorageDomain, { backend: 'json' })
+  const units: import('@deepseek-ai/dsh-storage').KvUnit[] = []
+  const traceUnits: import('@deepseek-ai/dsh-storage').KvUnit[] = []
+  const kv = ctx.storage.backend.get('json').kv!
+  const open = kv.open.bind(kv)
+  vi.spyOn(kv, 'open').mockImplementation(async (descriptor) => {
+    const unit = await open(descriptor)
+    if (descriptor.name.includes('platform_agent_runs')) units.push(unit)
+    if (descriptor.name.includes('platform_run_traces')) traceUnits.push(unit)
+    return unit
+  })
+  const fiber = ctx.plugin(AgentBuilder, { root: directory })
+  await fiber
+  const builder = ctx.agentBuilder
+  const resource = await builder.registryCreate('shared', { name: 'Run SRE', prompt: 'Run instruction',
+    model: { provider: 'demo', model: 'demo' }, toolIds: [], description: '', tags: [], ownerTeamId: 'shared-team',
+    harnessId: 'deepseek-harness' }, randomUUID())
+  const version = await builder.versionCreate('shared', resource.id, 1, randomUUID(), '')
+  await builder.deploymentActivate('shared', resource.id, version.id, 0, randomUUID(), 'deploy')
+  const start = (token = randomUUID(), input = 'Task input') => builder.runStart('shared', resource.id, input, token)
+  const get = (id: string) => builder.runGet('shared', resource.id, id)
+  const cancel = (id: string) => builder.runCancel('shared', resource.id, id)
+  return { ctx, model, builder, resource, version, start, get, cancel, units, traceUnits, fiber, directory }
+}
+
+describe('persistent platform Trace', () => {
+  it('records live model starts, provider usage and a source-ordered final answer across a reload', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const f = await platform([async () => { await gate; const chunks = finish(); chunks.splice(chunks.length - 1, 0,
+      { type: 'usage', usage: { inputTokens: 10, cacheReadTokens: 5, cacheWriteTokens: 0, outputTokens: 4, totalTokens: 19 } }); return chunks }])
+    const run = await f.start()
+    const query = () => f.ctx.agentBuilder.runTraceEvents('shared', f.resource.id, run.id)
+    try {
+      await expect.poll(async () => (await query()).items.some(item => item.type === 'model.call.started')).toBe(true)
+      expect((await query()).trace).toMatchObject({ state: 'pending', modelCalls: 1, totalTokens: null })
+    } finally { release() }
+    await expect.poll(async () => (await query()).trace.state).toBe('complete')
+    const page = await query()
+    expect(page.items.map(item => item.type)).toEqual(['run.created', 'run.started', 'model.call.started', 'model.call.completed', 'final.answer', 'run.succeeded'])
+    expect(page.trace).toMatchObject({ inputTokens: 15, outputTokens: 4, totalTokens: 19, usageComplete: true })
+    expect(page.items[3]).toMatchObject({ provider: 'demo', model: 'demo', incomplete: false })
+    const first = await f.builder.runTraceEvents('shared', f.resource.id, run.id, undefined, 2)
+    const second = await f.builder.runTraceEvents('shared', f.resource.id, run.id, first.nextCursor!, 2)
+    expect(second.items.map(item => item.eventId)).toEqual(page.items.slice(2, 4).map(item => item.eventId))
+    await expect(f.builder.runTraceGet('other', f.resource.id, run.id)).rejects.toThrow()
+    await expect(f.builder.runTraceEvents('shared', f.resource.id, run.id, undefined, 101)).rejects.toThrow()
+    await expect(f.builder.runTraceEvents('shared', f.resource.id, run.id, 'invalid')).rejects.toThrow('cursor')
+    await f.fiber.dispose()
+    await f.ctx.plugin(AgentBuilder, { root: f.directory })
+    expect(await query()).toEqual(page)
+  })
+  it('isolates storage failure from successful execution and retries an incomplete projection', async () => {
+    const f = await platform([finish])
+    const write = vi.spyOn(f.traceUnits[0]!, 'putRecord').mockRejectedValue(new Error('trace disk failure'))
+    const run = await f.start()
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('SUCCEEDED')
+    expect((await f.builder.runTraceGet('shared', f.resource.id, run.id)).state).toBe('unavailable')
+    write.mockRestore()
+    await expect.poll(async () => (await f.builder.runTraceGet('shared', f.resource.id, run.id)).state).toBe('complete')
+    expect(f.model.requests).toHaveLength(1)
+  })
+})
+
+describe('persistent platform Run lifecycle', () => {
+  it('persists completion without a reader and serves its index without scanning Sessions', async () => {
+    const f = await platform([finish])
+    const token = randomUUID()
+    const run = await f.start(token)
+    expect(run.status).toBe('PENDING')
+    await expect.poll(async () => {
+      const snapshot = await f.units[0]!.loadAll()
+      return (snapshot.tables.runs?.[run.id] as { status?: string } | undefined)?.status
+    }).toBe('SUCCEEDED')
+    const observe = vi.spyOn(f.ctx.sessionQuery, 'observeSession')
+    const completed = await f.get(run.id)
+    expect(completed).toMatchObject({ status: 'SUCCEEDED', input: { prompt: 'Task input' }, result: { textPreview: '完成' } })
+    expect(completed.startedAt).not.toBeNull()
+    expect(completed.finishedAt).not.toBeNull()
+    expect(completed.events.map(event => event.type)).toEqual(['run.created', 'run.started', 'run.succeeded'])
+    expect((await f.builder.runList('shared', f.resource.id, 0, undefined, 'SUCCEEDED')).items).toHaveLength(1)
+    expect(observe).not.toHaveBeenCalled()
+    expect((await f.start(token)).id).toBe(run.id)
+    await expect(f.start(token, 'Different input')).rejects.toThrow('token')
+    expect(await f.cancel(run.id)).toEqual(completed)
+    expect(f.model.requests).toHaveLength(1)
+    await f.fiber.dispose()
+    await f.ctx.plugin(AgentBuilder, { root: f.directory })
+    expect(await f.ctx.agentBuilder.runGet('shared', f.resource.id, run.id)).toEqual(completed)
+  })
+
+  it('upgrades accepted legacy records and closes orphan admissions without resubmitting', async () => {
+    const f = await platform([finish])
+    const run = await f.start()
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('SUCCEEDED')
+    const snapshot = await f.units[0]!.loadAll()
+    const saved = snapshot.tables.runs![run.id] as Record<string, unknown>
+    const legacy = { ...saved, status: 'accepted', format: 1, startedAt: null, finishedAt: null, input: null, result: null, events: [], lastSessionSeq: -1 }
+    await f.units[0]!.putRecord('runs', run.id, legacy)
+    await f.units[0]!.putRecord('runs', 'run-orphan', { ...legacy, id: 'run-orphan', sessionId: 'session-missing' })
+    await f.fiber.dispose()
+    await f.ctx.plugin(AgentBuilder, { root: f.directory })
+    const upgraded = await f.ctx.agentBuilder.runGet('shared', f.resource.id, run.id)
+    expect(upgraded).toMatchObject({ status: 'SUCCEEDED', input: { prompt: 'Task input' }, result: { textPreview: '完成' } })
+    expect(await f.ctx.agentBuilder.runGet('shared', f.resource.id, 'run-orphan')).toMatchObject({ status: 'FAILED',
+      startedAt: null, finishTimeSource: 'detected', error: { code: 'EXECUTION_INTERRUPTED' } })
+    expect(f.model.requests).toHaveLength(1)
+  })
+
+  it('rejects a failed admission write before model or Session side effects', async () => {
+    const f = await platform([finish])
+    const create = vi.spyOn(f.ctx.sessionController, 'create')
+    vi.spyOn(f.units[0]!, 'putRecord').mockRejectedValueOnce(new Error('disk full'))
+    await expect(f.start()).rejects.toThrow('disk full')
+    expect(create).not.toHaveBeenCalled()
+    expect(f.model.requests).toHaveLength(0)
+    expect((await f.builder.runList('shared', f.resource.id, 0)).items).toHaveLength(0)
+  })
+
+  it('keeps preparation failure as a queryable task and rejects foreign scopes', async () => {
+    const f = await platform([])
+    await writeFile(join(f.directory, f.version.id, 'agent.cordis.yml'), 'tampered')
+    const run = await f.start()
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('FAILED')
+    expect(await f.get(run.id)).toMatchObject({ startedAt: null, error: { code: 'START_FAILED' } })
+    await expect(f.builder.runCancel('foreign', f.resource.id, run.id)).rejects.toThrow()
+    expect(f.model.requests).toHaveLength(0)
+  })
+
+  it('cancels during Session creation without ever submitting the task', async () => {
+    const f = await platform([])
+    const entered = Promise.withResolvers<undefined>()
+    const released = Promise.withResolvers<undefined>()
+    const create = f.ctx.sessionController.create.bind(f.ctx.sessionController)
+    vi.spyOn(f.ctx.sessionController, 'create').mockImplementationOnce(async (request) => {
+      const result = await create(request)
+      entered.resolve(undefined); await released.promise
+      return result
+    })
+    const run = await f.start()
+    await entered.promise
+    try {
+      expect((await f.cancel(run.id)).status).toBe('CANCELLED')
+      expect((await f.cancel(run.id)).status).toBe('CANCELLED')
+    } finally { released.resolve(undefined) }
+    await f.fiber.dispose()
+    expect(f.model.requests).toHaveLength(0)
+  })
+
+  it('waits for non-cooperative execution to settle before reporting cancellation', async () => {
+    const entered = Promise.withResolvers<undefined>()
+    const released = Promise.withResolvers<undefined>()
+    const f = await platform([async () => { entered.resolve(undefined); await released.promise; return finish() }])
+    const run = await f.start()
+    await entered.promise
+    try {
+      const requested = await f.cancel(run.id)
+      expect(requested.cancelRequestedAt).not.toBeNull()
+      expect(requested.status).toBe('RUNNING')
+    } finally { released.resolve(undefined) }
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('CANCELLED')
+    expect((await f.get(run.id)).result).toBeNull()
+  })
+
+  it('records model execution failure and repairs a failed terminal write from original events', async () => {
+    const entered = Promise.withResolvers<undefined>()
+    const released = Promise.withResolvers<undefined>()
+    const f = await platform([async () => { entered.resolve(undefined); await released.promise; throw new Error('model unavailable') }])
+    const run = await f.start()
+    await entered.promise
+    await f.get(run.id)
+    vi.spyOn(f.units[0]!, 'putRecord').mockRejectedValueOnce(new Error('terminal disk failure'))
+    released.resolve(undefined)
+    await f.ctx.agents.get(run.sessionId)!.whenIdle()
+    await expect.poll(async () => (await f.get(run.id)).status).toBe('FAILED')
+    expect((await f.get(run.id)).error?.message).toContain('model unavailable')
+  })
+})
+
 describe('business presets through the production Loader and Agent Loop', () => {
   it('pins actual model, prompt and tools to Run versions across a concurrent rollback', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-version-loop-'))
@@ -115,7 +305,7 @@ describe('business presets through the production Loader and Agent Loop', () => 
     await expect(controller.create({ agentPreset: v2.id })).rejects.toThrow('Agent Run entry')
     const token = randomUUID()
     const a = await builder.runStart('shared', resource.id, 'Run A', token)
-    expect(a.status, a.error ?? '').toBe('running')
+    expect(a.status).toBe('PENDING')
     await started.promise
     try {
       const sessionA = ctx.agents.get(a.sessionId)!
@@ -128,20 +318,20 @@ describe('business presets through the production Loader and Agent Loop', () => 
       await builder.deploymentActivate('shared', resource.id, v1.id, 1, randomUUID(), 'rollback')
       expect((await builder.runStart('shared', resource.id, 'Run A', token)).id).toBe(a.id)
       const b = await builder.runStart('shared', resource.id, 'Run B', randomUUID())
+      await expect.poll(async () => (await builder.runGet('shared', resource.id, b.id)).status).toBe('SUCCEEDED')
       const sessionB = ctx.agents.get(b.sessionId)!
-      await sessionB.whenIdle()
       expect(ctx.tools.schemas(sessionB).map(tool => tool.name)).toEqual(['order_query'])
       expect(model.requests.map(request => request.model)).toEqual(['other', 'demo'])
       expect(JSON.stringify(model.requests[0])).toContain('Prompt B')
       expect(JSON.stringify(model.requests[1])).toContain('Prompt A literal {{value}}')
-      expect((await builder.runGet('shared', resource.id, b.id))).toMatchObject({ agentVersionId: v1.id, status: 'succeeded' })
-      expect((await builder.runGet('shared', resource.id, a.id))).toMatchObject({ agentVersionId: v2.id, status: 'running' })
+      expect((await builder.runGet('shared', resource.id, b.id))).toMatchObject({ agentVersionId: v1.id, status: 'SUCCEEDED' })
+      expect((await builder.runGet('shared', resource.id, a.id))).toMatchObject({ agentVersionId: v2.id, status: 'RUNNING' })
       expect(sessionA.session.snapshotEvents().find(event => event.type === 'platform/run')?.data).toMatchObject({ agentVersionId: v2.id, runId: a.id })
       const archived = await builder.registryArchive('shared', resource.id, edited.revision, true)
       await expect(builder.runStart('shared', resource.id, 'new', randomUUID())).rejects.toThrow('Restore')
       expect(archived.lifecycle).toBe('archived')
     } finally { release.resolve(undefined); await ctx.agents.get(a.sessionId)!.whenIdle() }
-    expect((await builder.runGet('shared', resource.id, a.id)).status).toBe('succeeded')
+    expect((await builder.runGet('shared', resource.id, a.id)).status).toBe('SUCCEEDED')
     expect(model.errors).toEqual([])
   })
   it('creates reusable definitions and initializes distinct models through the real Session Controller', async () => {

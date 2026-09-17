@@ -13,8 +13,9 @@ type Props = PropsRuntime<'conversation.composer'> & PropsLocale<'agentRegistry'
  */
 export function VersionRunComposer({ t, useSession, cancelRun }: Props) {
   const running = useSession(state => state.running)
+  const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   return <div className={css.notice}><p>{t('runReadOnly')}</p>
-    {running && <Button variant="outline" onClick={() => { void cancelRun().catch((failure: unknown) => { setError(String(failure)) }) }}>{t('cancelRun')}</Button>}
+    {running && <Button variant="outline" disabled={cancelling} onClick={() => { setCancelling(true); void cancelRun().catch((failure: unknown) => { setCancelling(false); setError(String(failure)) }) }}>{t(cancelling ? 'cancelling' : 'cancelRun')}</Button>}
     {error !== null && <p role="alert">{error}</p>}</div>
 }

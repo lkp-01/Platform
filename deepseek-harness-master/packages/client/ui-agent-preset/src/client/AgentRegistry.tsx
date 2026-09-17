@@ -21,7 +21,7 @@ type Props = RegistryActions & PropsLocale<'agentRegistry'>
 type Tab = 'overview' | 'configuration' | 'versions' | 'runs'
 
 function selectedId(): string | null {
-  const match = /^#agents\/([a-zA-Z0-9-]+)$/.exec(window.location.hash)
+  const match = /^#agents\/([a-zA-Z0-9-]+)(?:\/runs\/[a-zA-Z0-9-]+)?$/.exec(window.location.hash)
   return match?.[1] ?? null
 }
 
@@ -42,7 +42,7 @@ export function AgentRegistryPanel(props: Props) {
   const [agent, setAgent] = useState<RegistryAgent | null>(null)
   const [draft, setDraft] = useState<RegistryAgentInput | null>(null)
   const [tagsText, setTagsText] = useState('')
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab] = useState<Tab>(window.location.hash.includes('/runs/') ? 'runs' : 'overview')
   const [search, setSearch] = useState('')
   const [lifecycle, setLifecycle] = useState<'active' | 'archived' | 'all'>('active')
   const [cursor, setCursor] = useState<string | undefined>()
@@ -56,7 +56,10 @@ export function AgentRegistryPanel(props: Props) {
   actions.current = props
 
   useEffect(() => {
-    const changed = () => { setId(selectedId()); setDraft(null); setAgent(null); setNotice(null) }
+    const changed = () => {
+      setId(selectedId()); if (window.location.hash.includes('/runs/')) setTab('runs')
+      setDraft(null); setAgent(null); setNotice(null); setRefresh(value => value + 1)
+    }
     window.addEventListener('hashchange', changed)
     return () => { window.removeEventListener('hashchange', changed) }
   }, [])

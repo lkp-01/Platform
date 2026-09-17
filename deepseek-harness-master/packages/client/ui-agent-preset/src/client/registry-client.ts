@@ -70,6 +70,21 @@ export function mountRegistry(ctx: Context): void {
           if (!result.ok) throw new Error(result.error.message)
           return result.value
         },
+        runGet: async (...args) => {
+          const result = await scope.remote.agentBuilder.runGet(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        runCancel: async (...args) => {
+          const result = await scope.remote.agentBuilder.runCancel(...args)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
+        runTraceEvents: async (workspace, id, runId, cursor, limit) => {
+          const result = await scope.remote.agentBuilder.runTraceEvents(workspace, id, runId, cursor, limit)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        },
         openRun: (run) => { scope.uiWorkspace.openSession(run.sessionId) },
         catalog: async () => {
           const result = await scope.remote.agentBuilder.registryCatalog()
@@ -107,7 +122,10 @@ export function mountRegistry(ctx: Context): void {
         name: 'conversation.composer', priority: -20, locale: 'agentRegistry',
         select: owner => owner.sessionId?.startsWith('session-run-') ? { managed: true } : null,
         inject: sessionId => ({ cancelRun: async () => {
-          const result = await scope.remote.session.cancel({ sessionId })
+          const found = await scope.remote.agentBuilder.runForSession(sessionId)
+          if (!found.ok) throw new Error(found.error.message)
+          const run = found.value
+          const result = await scope.remote.agentBuilder.runCancel(run.platformWorkspaceId, run.agentId, run.id)
           if (!result.ok) throw new Error(result.error.message)
         } }),
       }, VersionRunComposer))

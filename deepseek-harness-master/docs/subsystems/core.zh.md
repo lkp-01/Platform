@@ -565,9 +565,10 @@ Creates immutable business definitions without accepting composition code.
  * @param id - Agent identity.
  * @param cursor - page offset.
  * @param versionId - optional exact version filter.
+ * @param status - optional lifecycle filter.
  * @returns bounded Run page.
  */
-@Remote('runList') async runList(workspaceId: string, id: string, cursor: number, versionId?: string): Promise<AgentHistoryPage<PlatformRun>>
+@Remote('runList') async runList( workspaceId: string, id: string, cursor: number, versionId?: string, status?: RunStatus, ): Promise<AgentHistoryPage<PlatformRun>>
 
 /** Read a Run with the version selected at admission.
  * @param workspaceId - organization scope.
@@ -576,6 +577,38 @@ Creates immutable business definitions without accepting composition code.
  * @returns attribution and Harness-derived status.
  */
 @Remote('runGet') async runGet(workspaceId: string, id: string, runId: string): Promise<PlatformRun>
+
+/** Read execution accounting for an authorized task.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param runId - task identity.
+ * @returns persisted Trace summary and availability.
+ */
+@Remote('runTraceGet') async runTraceGet(workspaceId: string, id: string, runId: string): Promise<RunTrace>
+
+/** Read source-ordered execution facts with bounded previews.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param runId - task identity.
+ * @param cursor - opaque position from a previous page.
+ * @param limit - maximum events, from 1 to 100.
+ * @returns events and the matching accounting revision.
+ */
+@Remote('runTraceEvents') async runTraceEvents(workspaceId: string, id: string, runId: string, cursor?: string, limit?: number): Promise<RunTracePage>
+
+/** Request cancellation of a scoped platform task.
+ * @param workspaceId - organization scope.
+ * @param id - Agent identity.
+ * @param runId - task identity.
+ * @returns current lifecycle, including pending cancellation intent.
+ */
+@Remote('runCancel') async runCancel(workspaceId: string, id: string, runId: string): Promise<PlatformRun>
+
+/** Resolve a managed Session for the execution-page cancellation entry.
+ * @param sessionId - existing Session identity.
+ * @returns task after checking its configured organization scope.
+ */
+@Remote('runForSession') async runForSession(sessionId: string): Promise<PlatformRun>
 ```
 
 Source: [`packages/business/agent-builder/src/index.ts`](../../packages/business/agent-builder/src/index.ts)

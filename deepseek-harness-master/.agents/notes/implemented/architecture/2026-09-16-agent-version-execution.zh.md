@@ -12,7 +12,7 @@ Status: implemented
 
 [创建包](../../../../packages/business/agent-builder/README.zh.md)包含独立的 Version、Deployment 和最小 Runtime 模块。版本记录捕获完整的受支持业务配置与来源修订号。按 Agent 串行提交将序号分配和重试凭据一起持久化。部署准备先校验并挂载不可变版本 Preset，再原子记录新默认版本和激活历史。回滚复用同一操作。
 
-Run 接受流程在调用现有 Session Controller 与 Harness Loop 前固定版本并持久化身份。一个 Run 对应一个 Session 和一个已提交任务。Session 日志在原有执行事件旁保存 `platform/run` 归因；查询从持久化轮次结束事件推导完成状态，不读取当前部署。进程丢失后不自动重发已接受请求。
+Run 接受流程在调用现有 Session Controller 与 Harness Loop 前固定版本并持久化身份。一个 Run 对应一个 Session 和一个已提交任务。Session 日志在原有执行事件旁保存 `platform/run` 归因；Runtime 根据持久化轮次结束事件保存生命周期摘要，不读取当前部署；查询读取这些摘要。进程丢失后不自动重发已接受请求。
 
 Session API 授权在新组合发布、模型切换、提示词提交和 fork 前执行。Preset 授权在选择、Remote 复制和删除前执行。这些扩展点让平台无需修改 Agent Loop 或普通 Session 行为，即可强制受管执行不可变。作用域请求监听器提供已捕获模型参数。Web 输入区域使用现有链式扩展，将版本 Run 呈现为只读执行记录。
 

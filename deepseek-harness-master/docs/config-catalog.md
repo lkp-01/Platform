@@ -42,6 +42,8 @@ Requires: `agentPresets` · `sessionController` · `llm` · `agentDefaultModel` 
 ```ts config-catalog
 /** Host-owned configuration directory. */
 interface Config {
+  /** Maximum Unicode code points retained in each Trace preview. */
+  tracePreviewChars?: number
   /** Host-owned persistent directory, also included in Preset discovery. */
   root: string
   /** Organization workspace ID; independent of filesystem workspaces. */
@@ -55,7 +57,7 @@ interface Config {
 }
 ```
 
-Source: [`packages/business/agent-builder/src/index.ts:30`](../packages/business/agent-builder/src/index.ts)
+Source: [`packages/business/agent-builder/src/index.ts:32`](../packages/business/agent-builder/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
